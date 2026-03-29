@@ -20,35 +20,62 @@ class SpeechService {
   Future<void> _cacheVoices() async {
     if (_voicesCached) return;
     try {
-      // Browser may load voices asynchronously — retry if empty
       var voices = await _tts.getVoices as List<dynamic>;
       if (voices.isEmpty) {
         await Future.delayed(const Duration(milliseconds: 500));
         voices = await _tts.getVoices as List<dynamic>;
       }
+
+      _log('Total voices: ${voices.length}');
+
       for (final lang in ['ja', 'ko']) {
         final prefix = lang == 'ja' ? 'ja' : 'ko';
         final langVoices = voices.where((v) {
-          return (v['locale'] ?? '').toString().startsWith(prefix);
+          final locale = (v['locale'] ?? v['name'] ?? '').toString().toLowerCase();
+          return locale.contains(prefix);
         }).toList();
+
+        _log('$lang voices: ${langVoices.length}');
+        for (final v in langVoices) {
+          _log('  ${v['name']} (${v['locale']})');
+        }
 
         if (langVoices.isEmpty) continue;
 
-        // Find male/female
-        final female = langVoices.where((v) =>
-            (v['name'] ?? '').toString().toLowerCase().contains('female')).toList();
+        // Try matching by name keywords
+        final female = langVoices.where((v) {
+          final n = (v['name'] ?? '').toString().toLowerCase();
+          return n.contains('female') || n.contains('여') || n.contains('f-');
+        }).toList();
         final male = langVoices.where((v) {
           final n = (v['name'] ?? '').toString().toLowerCase();
-          return n.contains('male') && !n.contains('female');
+          return (n.contains('male') && !n.contains('female')) ||
+              n.contains('남') || n.contains('m-');
         }).toList();
 
-        _voiceCache['${lang}_female'] = female.isNotEmpty
-            ? female.first['name'] : langVoices.first['name'];
-        _voiceCache['${lang}_male'] = male.isNotEmpty
-            ? male.first['name'] : langVoices.last['name'];
+        if (female.isNotEmpty) {
+          _voiceCache['${lang}_female'] = female.first['name'];
+        } else if (langVoices.length >= 2) {
+          // Assume first = female, second = male (common convention)
+          _voiceCache['${lang}_female'] = langVoices.first['name'];
+        } else {
+          _voiceCache['${lang}_female'] = langVoices.first['name'];
+        }
+
+        if (male.isNotEmpty) {
+          _voiceCache['${lang}_male'] = male.first['name'];
+        } else if (langVoices.length >= 2) {
+          _voiceCache['${lang}_male'] = langVoices.last['name'];
+        } else {
+          _voiceCache['${lang}_male'] = langVoices.first['name'];
+        }
       }
+
+      _log('Voice cache: $_voiceCache');
       _voicesCached = true;
-    } catch (_) {}
+    } catch (e) {
+      _log('Voice cache error: $e');
+    }
   }
 
   bool get isAvailable => _initialized;
