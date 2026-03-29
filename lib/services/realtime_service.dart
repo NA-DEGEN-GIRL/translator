@@ -70,8 +70,8 @@ Examples:
       }),
     );
 
-    if (tokenRes.statusCode != 200) {
-      throw Exception('Failed to create session: ${tokenRes.statusCode}');
+    if (tokenRes.statusCode != 200 && tokenRes.statusCode != 201) {
+      throw Exception('Failed to create session: ${tokenRes.statusCode} ${tokenRes.body}');
     }
 
     final tokenData = jsonDecode(tokenRes.body);
@@ -131,8 +131,8 @@ Examples:
       body: offer.sdp,
     );
 
-    if (sdpRes.statusCode != 200) {
-      throw Exception('WebRTC connection failed: ${sdpRes.statusCode}');
+    if (sdpRes.statusCode != 200 && sdpRes.statusCode != 201) {
+      throw Exception('WebRTC connection failed: ${sdpRes.statusCode} ${sdpRes.body}');
     }
 
     await _pc!.setRemoteDescription(

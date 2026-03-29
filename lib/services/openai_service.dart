@@ -72,4 +72,29 @@ class OpenAIService {
 
     return response.bodyBytes;
   }
+
+  Future<String> stt(Uint8List audioBytes, String lang) async {
+    final request = http.MultipartRequest(
+      'POST',
+      Uri.parse('https://api.openai.com/v1/audio/transcriptions'),
+    );
+    request.headers['Authorization'] = 'Bearer $apiKey';
+    request.fields['model'] = 'gpt-4o-mini-transcribe';
+    request.fields['language'] = lang == 'ja' ? 'ja' : 'ko';
+    request.files.add(http.MultipartFile.fromBytes(
+      'file',
+      audioBytes,
+      filename: 'audio.webm',
+    ));
+
+    final response = await request.send();
+    final body = await response.stream.bytesToString();
+
+    if (response.statusCode != 200) {
+      throw Exception('STT failed: ${response.statusCode} $body');
+    }
+
+    final data = jsonDecode(body);
+    return data['text'] ?? '';
+  }
 }

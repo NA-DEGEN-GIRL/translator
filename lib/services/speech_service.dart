@@ -9,7 +9,7 @@ class SpeechService {
   Future<bool> initialize() async {
     if (_initialized) return true;
     _initialized = await _stt.initialize();
-    await _tts.setSharedInstance(true);
+    try { await _tts.setSharedInstance(true); } catch (_) {}
     return _initialized;
   }
 

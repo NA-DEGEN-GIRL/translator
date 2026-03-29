@@ -1,7 +1,10 @@
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:record/record.dart';
+import 'package:http/http.dart' as http_client;
 import '../services/openai_service.dart';
 import '../services/speech_service.dart';
 import '../services/realtime_service.dart';
@@ -19,6 +22,8 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
   late OpenAIService _openai;
   final SpeechService _speech = SpeechService();
   final AudioPlayer _audioPlayer = AudioPlayer();
+  final AudioRecorder _recorder = AudioRecorder();
+  bool _isRecording = false;
   final TextEditingController _textController = TextEditingController();
   final ScrollController _myScrollController = ScrollController();
   final ScrollController _mirrorScrollController = ScrollController();
@@ -61,6 +66,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
   void dispose() {
     _realtime?.stop();
     _remoteRenderer.dispose();
+    _recorder.dispose();
     _textController.dispose();
     _myScrollController.dispose();
     _mirrorScrollController.dispose();
@@ -264,6 +270,72 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
       _interimText = '';
       _mirrorInterimText = '';
     });
+  }
+
+  // ===== OpenAI STT (record + Whisper) =====
+  Future<void> _startOpenAIRecording() async {
+    if (_isRecording || _isProcessing) return;
+    if (_isMirrorListening) _stopMirrorListening();
+
+    final hasPermission = await _recorder.hasPermission();
+    if (!hasPermission) {
+      _showError('마이크 권한이 필요합니다');
+      return;
+    }
+
+    setState(() {
+      _isRecording = true;
+      _interimText = '녹음 중... (버튼을 다시 눌러 중지)';
+    });
+
+    await _recorder.start(
+      const RecordConfig(encoder: AudioEncoder.opus, numChannels: 1),
+      path: '', // empty for stream/blob on web
+    );
+  }
+
+  Future<void> _stopOpenAIRecording({String? forceDirection}) async {
+    if (!_isRecording) return;
+
+    final path = await _recorder.stop();
+    setState(() {
+      _isRecording = false;
+      _interimText = '음성 인식 중...';
+    });
+
+    if (path == null) {
+      setState(() => _interimText = '');
+      return;
+    }
+
+    try {
+      // Read recorded file as bytes
+      final bytes = await _readFileBytes(path);
+      if (bytes.isEmpty || bytes.length < 1000) {
+        setState(() => _interimText = '');
+        return;
+      }
+
+      final text = await _openai.stt(bytes, forceDirection == 'ja2ko' ? 'ja' : _micLang);
+      setState(() => _interimText = '');
+
+      if (text.isNotEmpty) {
+        _handleTranslation(text, forceDirection: forceDirection);
+      }
+    } catch (e) {
+      setState(() => _interimText = '');
+      _showError(e.toString());
+    }
+  }
+
+  Future<Uint8List> _readFileBytes(String path) async {
+    // On web, path is a blob URL — fetch it
+    try {
+      final response = await http_client.get(Uri.parse(path));
+      return response.bodyBytes;
+    } catch (_) {
+      return Uint8List(0);
+    }
   }
 
   // ===== Realtime =====
@@ -514,7 +586,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
           if (_mode == 'browser')
             _buildDropdown<int>(
               value: _pauseSeconds,
-              items: {2: '2s', 3: '3s', 5: '5s', 7: '7s'},
+              items: {2: '2s', 3: '3s', 5: '5s', 7: '7s', 30: 'OFF'},
               onChanged: (v) => setState(() {
                 _pauseSeconds = v!;
                 _saveSettings();
@@ -624,10 +696,16 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
           _buildCircleButton(
             icon: Icons.mic,
             size: 36,
-            color: (_isListening || _realtimeActive) ? Colors.red : const Color(0xFF4A90D9),
-            onTap: _mode == 'realtime'
-                ? (_realtimeActive ? _stopRealtime : _startRealtime)
-                : (_isListening ? _stopListening : _startListening),
+            color: (_isListening || _realtimeActive || _isRecording) ? Colors.red : const Color(0xFF4A90D9),
+            onTap: () {
+              if (_mode == 'realtime') {
+                _realtimeActive ? _stopRealtime() : _startRealtime();
+              } else if (_mode == 'openai') {
+                _isRecording ? _stopOpenAIRecording() : _startOpenAIRecording();
+              } else {
+                _isListening ? _stopListening() : _startListening();
+              }
+            },
           ),
           const SizedBox(width: 4),
           // Language toggle
