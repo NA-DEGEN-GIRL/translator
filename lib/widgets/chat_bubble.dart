@@ -82,7 +82,7 @@ class ChatBubble extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 2),
-            Text(
+            SelectableText(
               message.original,
               style: TextStyle(
                 fontSize: fontSize * 0.85,
@@ -94,7 +94,7 @@ class ChatBubble extends StatelessWidget {
               height: 1,
               color: Colors.white30,
             ),
-            Text(
+            SelectableText(
               message.translated,
               style: TextStyle(
                 fontSize: fontSize,
@@ -104,7 +104,7 @@ class ChatBubble extends StatelessWidget {
             ),
             if (message.backTranslation != null) ...[
               const SizedBox(height: 4),
-              Text(
+              SelectableText(
                 '(${message.backTranslation})',
                 style: TextStyle(
                   fontSize: fontSize * 0.7,
