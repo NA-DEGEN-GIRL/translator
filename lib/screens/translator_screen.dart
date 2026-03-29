@@ -839,6 +839,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
               }
             },
           ),
+          if (_mode != 'realtime') ...[
           const SizedBox(width: 4),
           // Language toggle
           GestureDetector(
@@ -871,6 +872,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
               ),
             ),
           ),
+          ],
           const SizedBox(width: 4),
           // Settings toggle
           _buildCircleButton(
