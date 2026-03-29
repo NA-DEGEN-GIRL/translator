@@ -223,6 +223,15 @@ Examples:
     _localTrack?.enabled = !mute;
   }
 
+  void muteAudio(bool mute) {
+    // Mute/unmute remote audio output
+    if (_remoteStream != null) {
+      for (final track in _remoteStream!.getAudioTracks()) {
+        track.enabled = !mute;
+      }
+    }
+  }
+
   void sendText(String text) {
     if (_dc?.state != RTCDataChannelState.RTCDataChannelOpen) return;
     lastUserTranscript = text;

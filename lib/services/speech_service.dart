@@ -113,23 +113,20 @@ class SpeechService {
 
   Future<void> speak(String text, String lang, {double rate = 1.0, String gender = 'female'}) async {
     final locale = lang == 'ja' ? 'ja-JP' : 'ko-KR';
-    _log('speak called: lang=$lang, gender=$gender, rate=$rate, warmedUp=$_ttsWarmedUp');
-    _log('text: "${text.length > 30 ? text.substring(0, 30) : text}"');
-
     await _tts.setLanguage(locale);
-    await _tts.setSpeechRate(rate);
 
+    // Android: flutter_tts internally multiplies rate by 2x
+    // So 0.5 in flutter_tts = 1.0 native = normal speed
+    final adjustedRate = kIsWeb ? rate : rate * 0.5;
+    await _tts.setSpeechRate(adjustedRate);
+
+    // Use cached voice (index-based on Android since no gender metadata)
     final key = '${lang}_$gender';
-    _log('voice cache: $_voiceCache');
     if (_voiceCache.containsKey(key)) {
-      _log('setting voice: ${_voiceCache[key]}');
       await _tts.setVoice({'name': _voiceCache[key]!, 'locale': locale});
-    } else {
-      _log('no cached voice for $key');
     }
 
-    final result = await _tts.speak(text);
-    _log('speak result: $result');
+    await _tts.speak(text);
   }
 
   Future<void> stopSpeaking() async {

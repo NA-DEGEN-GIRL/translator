@@ -455,6 +455,13 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     }
   }
 
+  void _updateRealtimeAudioMute() {
+    if (_realtimeActive && _realtime != null) {
+      final shouldMute = !_ttsJaEnabled && !_ttsKoEnabled;
+      _realtime!.muteAudio(shouldMute);
+    }
+  }
+
   // ===== Realtime =====
   String _detectLangSimple(String text) {
     int ko = 0, ja = 0;
@@ -482,6 +489,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
         _realtimeActive = true;
         _interimText = 'Realtime 활성 — 말하세요';
       });
+      _updateRealtimeAudioMute();
     } catch (e) {
       _showError(e.toString());
       setState(() {
@@ -648,6 +656,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
             )),
           _labeledSetting('JA', _buildToggle('', _ttsJaEnabled, () {
             setState(() => _ttsJaEnabled = !_ttsJaEnabled); _saveSettings();
+            _updateRealtimeAudioMute();
           })),
           _labeledSetting('JA음성', _buildDropdown<String>(
             value: _voiceJa,
@@ -656,6 +665,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
           )),
           _labeledSetting('KO', _buildToggle('', _ttsKoEnabled, () {
             setState(() => _ttsKoEnabled = !_ttsKoEnabled); _saveSettings();
+            _updateRealtimeAudioMute();
           })),
           _labeledSetting('KO음성', _buildDropdown<String>(
             value: _voiceKo,

@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "external-ai": {
+      "command": "/root/.pyenv/versions/3.10.17/bin/python3",
+      "args": ["/root/mcp-external-ai/server.py"],
+      "env": {}
+    }
+  }
+}
