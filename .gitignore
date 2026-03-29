@@ -3,9 +3,11 @@ __pycache__/
 .venv/
 *.pyc
 node_modules/
-android/
 *.apk
 aws1.pem
 capacitor.config.json
 package.json
 package-lock.json
+build/
+.dart_tool/
+.flutter-plugins*
