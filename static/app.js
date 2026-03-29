@@ -514,7 +514,7 @@ function sendText() {
             },
         }));
         dataChannel.send(JSON.stringify({ type: 'response.create' }));
-        currentInputTranscript = text;
+        lastUserTranscript = text;
         return;
     }
 
@@ -554,6 +554,7 @@ document.getElementById('ttsKoToggle').addEventListener('click', () => {
 });
 
 function updateRealtimeAudioMute() {
+    // Default: mute only if both are off. Per-language mute happens in output_audio_buffer.started
     if (realtimeAudioEl) {
         realtimeAudioEl.muted = !ttsJaEnabled && !ttsKoEnabled;
     }
@@ -727,9 +728,10 @@ let realtimeAudioEl = null;
 let localStream = null;
 let localTrack = null;
 
-// Track current turn's transcription and translation
-let currentInputTranscript = '';
-let currentOutputTranscript = '';
+// Track turns by response_id to avoid mixing
+let realtimeTurns = {}; // { response_id: { input: '', output: '' } }
+let currentResponseId = null;
+let lastUserTranscript = ''; // from conversation.item.done
 let isMuted = false;
 
 async function startRealtimeSession() {
@@ -766,10 +768,19 @@ async function startRealtimeSession() {
         // 3. Audio output — translated speech plays here
         realtimeAudioEl = document.createElement('audio');
         realtimeAudioEl.autoplay = true;
-        // Respect TTS toggle — mute audio if both TTS are off
         realtimeAudioEl.muted = !ttsJaEnabled && !ttsKoEnabled;
         peerConnection.ontrack = (e) => {
             realtimeAudioEl.srcObject = e.streams[0];
+        };
+
+        // 3b. Connection state monitoring
+        peerConnection.onconnectionstatechange = () => {
+            const state = peerConnection.connectionState;
+            console.log('WebRTC state:', state);
+            if (state === 'disconnected' || state === 'failed' || state === 'closed') {
+                showError('Realtime 연결이 끊어졌습니다');
+                stopRealtimeSession();
+            }
         };
 
         // 4. Microphone input
@@ -849,8 +860,9 @@ function cleanupRealtime() {
         realtimeAudioEl.srcObject = null;
         realtimeAudioEl = null;
     }
-    currentInputTranscript = '';
-    currentOutputTranscript = '';
+    realtimeTurns = {};
+    currentResponseId = null;
+    lastUserTranscript = '';
 }
 
 function muteRealtimeMic(mute) {
@@ -886,44 +898,72 @@ function handleRealtimeEvent(e) {
             mirrorInterimEl.textContent = '翻訳中...';
             break;
 
-        // User's audio item completed — extract transcript if available
+        // User's audio item completed — save actual transcript
         case 'conversation.item.done':
             if (event.item?.type === 'message' && event.item?.role === 'user') {
                 const audioContent = event.item.content?.find(c => c.type === 'input_audio');
                 if (audioContent?.transcript) {
-                    currentInputTranscript = audioContent.transcript;
-                    interimText.textContent = currentInputTranscript;
-                    mirrorInterimEl.textContent = currentInputTranscript;
+                    lastUserTranscript = audioContent.transcript;
+                    interimText.textContent = lastUserTranscript;
+                    mirrorInterimEl.textContent = lastUserTranscript;
                 }
             }
             break;
 
-        // Model starts generating audio — mute mic to prevent feedback
-        case 'output_audio_buffer.started':
-            if (!isMuted) muteRealtimeMic(true);
+        // Response created — track by response_id
+        case 'response.created':
+            currentResponseId = event.response?.id || null;
+            if (currentResponseId) {
+                realtimeTurns[currentResponseId] = {
+                    input: lastUserTranscript,
+                    output: '',
+                };
+            }
             break;
 
-        // Translated text streaming
-        case 'response.output_audio_transcript.delta':
-            currentOutputTranscript += (event.delta || '');
-            interimText.textContent = currentOutputTranscript;
-            mirrorInterimEl.textContent = currentOutputTranscript;
+        // Model starts generating audio — mute mic + check TTS toggle
+        case 'output_audio_buffer.started': {
+            if (!isMuted) muteRealtimeMic(true);
+            // Language-aware TTS mute: check what language is being output
+            const rid2 = event.response_id;
+            const turnForAudio = rid2 ? realtimeTurns[rid2] : null;
+            if (turnForAudio && realtimeAudioEl) {
+                const outLang = detectLang(turnForAudio.output || '');
+                const shouldMute = (outLang === 'ja' && !ttsJaEnabled) || (outLang === 'ko' && !ttsKoEnabled);
+                realtimeAudioEl.muted = shouldMute;
+            }
             break;
+        }
+
+        // Translated text streaming — accumulate by response_id
+        case 'response.output_audio_transcript.delta': {
+            const rid = event.response_id;
+            if (rid && realtimeTurns[rid]) {
+                realtimeTurns[rid].output += (event.delta || '');
+                interimText.textContent = realtimeTurns[rid].output;
+                mirrorInterimEl.textContent = realtimeTurns[rid].output;
+            }
+            break;
+        }
 
         // Audio output finished — unmute
         case 'output_audio_buffer.stopped':
             setTimeout(() => muteRealtimeMic(false), 300);
             break;
 
-        // Response complete — create bubble, then async fetch back-translation
-        case 'response.done':
-            if (currentOutputTranscript) {
-                const outputLang = detectLang(currentOutputTranscript);
-                const side = outputLang === 'ja' ? 'ko' : 'ja';
-                const original = currentInputTranscript || '';
-                const translated = currentOutputTranscript;
+        // Response complete — create bubble
+        case 'response.done': {
+            const rid = event.response?.id;
+            const turn = rid ? realtimeTurns[rid] : null;
 
-                // Create bubble immediately with what we have
+            if (turn && turn.output) {
+                const translated = turn.output;
+                const outputLang = detectLang(translated);
+                const side = outputLang === 'ja' ? 'ko' : 'ja';
+
+                // Use actual user transcript if available, not reverse-translation
+                const original = turn.input || '';
+
                 const msgEl = createMessageBubble(
                     original || translated, translated, null, side
                 );
@@ -936,38 +976,34 @@ function handleRealtimeEvent(e) {
 
                 scrollToBottom();
 
-                // Async: reverse-translate to get original text + verification
-                const reverseDir = outputLang === 'ja' ? 'ja2ko' : 'ko2ja';
-                fetch('/api/translate', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ text: translated, direction: reverseDir, context: [] }),
-                }).then(r => r.json()).then(data => {
-                    if (data.translated) {
-                        // Update original text and add back-translation
-                        const update = (el) => {
-                            const origEl = el.querySelector('.original-text');
-                            const bubble = el.querySelector('.bubble');
-                            if (origEl) origEl.textContent = data.translated;
-                            // Add back-translation if not exists
-                            if (!el.querySelector('.back-translation')) {
-                                const btEl = document.createElement('div');
-                                btEl.className = 'back-translation';
-                                btEl.textContent = `(${data.translated})`;
-                                bubble.querySelector('.translated-text').after(btEl);
-                            }
-                        };
-                        update(msgEl);
-                        update(mirrorEl);
-                    }
-                }).catch(() => {}); // silent fail for back-translation
+                // Only fetch back-translation if we don't have the original transcript
+                if (!original) {
+                    const reverseDir = outputLang === 'ja' ? 'ja2ko' : 'ko2ja';
+                    fetch('/api/translate', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ text: translated, direction: reverseDir, context: [] }),
+                    }).then(r => r.json()).then(data => {
+                        if (data.translated) {
+                            const update = (el) => {
+                                const origEl = el.querySelector('.original-text');
+                                if (origEl) origEl.textContent = data.translated;
+                            };
+                            update(msgEl);
+                            update(mirrorEl);
+                        }
+                    }).catch(() => {});
+                }
             }
 
-            currentInputTranscript = '';
-            currentOutputTranscript = '';
+            // Cleanup this turn
+            if (rid) delete realtimeTurns[rid];
+            currentResponseId = null;
+            lastUserTranscript = '';
             interimText.textContent = '';
             mirrorInterimEl.textContent = '';
             break;
+        }
 
         case 'error':
             console.error('Realtime error:', event.error);
