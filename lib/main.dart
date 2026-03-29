@@ -2,6 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'screens/translator_screen.dart';
 
+// Build-time injection: flutter run --dart-define=OPENAI_API_KEY=sk-...
+// If not provided, shows API key input screen
+const _builtInKey = String.fromEnvironment('OPENAI_API_KEY', defaultValue: '');
+
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   runApp(const KoJaApp());
@@ -13,42 +17,49 @@ class KoJaApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'KO⇄JA Translator',
+      title: 'KO⇄JA',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF4A90D9)),
         useMaterial3: true,
       ),
-      home: const ApiKeyScreen(),
+      home: const EntryScreen(),
     );
   }
 }
 
-class ApiKeyScreen extends StatefulWidget {
-  const ApiKeyScreen({super.key});
+class EntryScreen extends StatefulWidget {
+  const EntryScreen({super.key});
 
   @override
-  State<ApiKeyScreen> createState() => _ApiKeyScreenState();
+  State<EntryScreen> createState() => _EntryScreenState();
 }
 
-class _ApiKeyScreenState extends State<ApiKeyScreen> {
+class _EntryScreenState extends State<EntryScreen> {
   final _controller = TextEditingController();
   bool _loading = true;
 
   @override
   void initState() {
     super.initState();
-    _loadKey();
+    _init();
   }
 
-  Future<void> _loadKey() async {
-    final prefs = await SharedPreferences.getInstance();
-    final key = prefs.getString('openai_api_key') ?? '';
-    if (key.isNotEmpty) {
-      _goToTranslator(key);
-    } else {
-      setState(() => _loading = false);
+  Future<void> _init() async {
+    // 1. Built-in key (from --dart-define)
+    if (_builtInKey.isNotEmpty) {
+      _goToTranslator(_builtInKey);
+      return;
     }
+    // 2. Saved key
+    final prefs = await SharedPreferences.getInstance();
+    final saved = prefs.getString('openai_api_key') ?? '';
+    if (saved.isNotEmpty) {
+      _goToTranslator(saved);
+      return;
+    }
+    // 3. Show input
+    setState(() => _loading = false);
   }
 
   Future<void> _saveAndGo() async {
@@ -61,20 +72,15 @@ class _ApiKeyScreenState extends State<ApiKeyScreen> {
 
   void _goToTranslator(String key) {
     Navigator.of(context).pushReplacement(
-      MaterialPageRoute(
-        builder: (_) => TranslatorScreen(apiKey: key),
-      ),
+      MaterialPageRoute(builder: (_) => TranslatorScreen(apiKey: key)),
     );
   }
 
   @override
   Widget build(BuildContext context) {
     if (_loading) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      );
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
-
     return Scaffold(
       body: Center(
         child: Padding(
@@ -82,22 +88,13 @@ class _ApiKeyScreenState extends State<ApiKeyScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Text(
-                'KO ⇄ JA',
-                style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
-              ),
+              const Text('KO ⇄ JA', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
               const SizedBox(height: 24),
               TextField(
                 controller: _controller,
                 decoration: InputDecoration(
                   hintText: 'OpenAI API Key',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 12,
-                  ),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                 ),
                 obscureText: true,
               ),
@@ -106,13 +103,7 @@ class _ApiKeyScreenState extends State<ApiKeyScreen> {
                 width: double.infinity,
                 child: ElevatedButton(
                   onPressed: _saveAndGo,
-                  style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                  child: const Text('시작', style: TextStyle(fontSize: 16)),
+                  child: const Text('시작'),
                 ),
               ),
             ],
