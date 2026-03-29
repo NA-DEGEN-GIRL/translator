@@ -151,15 +151,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
         forceDirection ?? (_detectLang(text) == 'ko' ? 'ko2ja' : 'ja2ko');
 
     try {
-      // Build conversation context from recent messages
-      final ctx = _messages.reversed.take(6).toList().reversed.map((m) {
-        return <String, String>{
-          'role': 'user',
-          'content': m.original,
-        };
-      }).toList();
-
-      final result = await _openai.translate(text, direction, model: _model, context: ctx);
+      final result = await _openai.translate(text, direction, model: _model);
       final translated = result['translated'] ?? '';
 
       final msg = ChatMessage(
