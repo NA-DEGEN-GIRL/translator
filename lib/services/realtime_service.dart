@@ -18,6 +18,7 @@ class RealtimeService {
   MediaStream? _localStream;
   MediaStreamTrack? _localTrack;
   MediaStream? _remoteStream;
+  RTCVideoRenderer? _remoteRenderer;
   bool _active = false;
 
   // Turn tracking
@@ -80,10 +81,14 @@ Examples:
     // 2. Create peer connection
     _pc = await createPeerConnection({});
 
-    // 3. Remote audio
+    // 3. Remote audio — use RTCVideoRenderer for playback
+    _remoteRenderer = RTCVideoRenderer();
+    await _remoteRenderer!.initialize();
+
     _pc!.onTrack = (event) {
       if (event.streams.isNotEmpty) {
         _remoteStream = event.streams[0];
+        _remoteRenderer!.srcObject = _remoteStream;
         onEvent('remote_stream', {});
       }
     };
@@ -237,6 +242,9 @@ Examples:
     _localStream = null;
     _localTrack = null;
     _remoteStream = null;
+    _remoteRenderer?.srcObject = null;
+    await _remoteRenderer?.dispose();
+    _remoteRenderer = null;
     await _pc?.close();
     _pc = null;
     turns.clear();

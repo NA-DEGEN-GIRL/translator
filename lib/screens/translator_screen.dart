@@ -52,6 +52,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
   bool _showSettings = false;
   double _ttsSpeed = 1.0;
   int _pauseSeconds = 3;
+  double _vadThreshold = 0.9;
 
   @override
   void initState() {
@@ -489,24 +490,23 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
           });
           _scrollToBottom();
 
-          // Async back-translation
-          if (turn.input.isEmpty) {
-            final reverseDir = outputLang == 'ja' ? 'ja2ko' : 'ko2ja';
-            _openai.translate(turn.output, reverseDir, model: _model).then((r) {
-              if (r['translated']?.isNotEmpty ?? false) {
-                setState(() {
-                  final idx = _messages.indexOf(msg);
-                  if (idx >= 0) {
-                    _messages[idx] = ChatMessage(
-                      original: r['translated']!,
-                      translated: msg.translated,
-                      direction: msg.direction,
-                    );
-                  }
-                });
-              }
-            }).catchError((_) {});
-          }
+          // Always fetch back-translation for verification
+          final reverseDir = outputLang == 'ja' ? 'ja2ko' : 'ko2ja';
+          _openai.translate(turn.output, reverseDir, model: _model).then((r) {
+            if (r['translated']?.isNotEmpty ?? false) {
+              setState(() {
+                final idx = _messages.indexOf(msg);
+                if (idx >= 0) {
+                  _messages[idx] = ChatMessage(
+                    original: turn.input.isNotEmpty ? turn.input : r['translated']!,
+                    translated: msg.translated,
+                    backTranslation: r['translated'],
+                    direction: msg.direction,
+                  );
+                }
+              });
+            }
+          }).catchError((_) {});
 
           // Clean turn
           if (rid != null) _realtime!.turns.remove(rid);
@@ -519,7 +519,10 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
         break;
 
       case 'remote_stream':
-        // Audio plays automatically via WebRTC
+        // Set remote stream to renderer for audio playback
+        if (_realtime?.remoteStream != null) {
+          _remoteRenderer.srcObject = _realtime!.remoteStream;
+        }
         break;
     }
   }
@@ -574,89 +577,70 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
         runSpacing: 4,
         alignment: WrapAlignment.center,
         children: [
-          // Mode
-          _buildDropdown<String>(
+          _labeledSetting('모드', _buildDropdown<String>(
             value: _mode,
             items: {'browser': '브라우저', 'openai': 'OpenAI', 'realtime': 'RT'},
-            onChanged: (v) => setState(() {
-              _mode = v!;
-              _saveSettings();
-            }),
-          ),
-          // Model
-          _buildDropdown<String>(
+            onChanged: (v) => setState(() { _mode = v!; _saveSettings(); }),
+          )),
+          _labeledSetting('모델', _buildDropdown<String>(
             value: _model,
-            items: {
-              'gpt-4.1-nano': '4.1n',
-              'gpt-4.1-mini': '4.1m',
-              'gpt-5.4-nano': '5.4n',
-              'gpt-5.4-mini': '5.4m',
-              'gpt-5.4': '5.4',
-            },
-            onChanged: (v) => setState(() {
-              _model = v!;
-              _saveSettings();
-            }),
-          ),
-          // TTS JA
-          _buildToggle('J', _ttsJaEnabled, () {
-            setState(() => _ttsJaEnabled = !_ttsJaEnabled);
-            _saveSettings();
-          }),
-          // Voice JA
-          _buildDropdown<String>(
+            items: {'gpt-4.1-nano': '4.1n', 'gpt-4.1-mini': '4.1m', 'gpt-5.4-nano': '5.4n', 'gpt-5.4-mini': '5.4m', 'gpt-5.4': '5.4'},
+            onChanged: (v) => setState(() { _model = v!; _saveSettings(); }),
+          )),
+          _labeledSetting('JA', _buildToggle('', _ttsJaEnabled, () {
+            setState(() => _ttsJaEnabled = !_ttsJaEnabled); _saveSettings();
+          })),
+          _labeledSetting('JA음성', _buildDropdown<String>(
             value: _voiceJa,
             items: {'onyx': '남', 'coral': '여'},
-            onChanged: (v) => setState(() {
-              _voiceJa = v!;
-              _saveSettings();
-            }),
-          ),
-          // TTS KO
-          _buildToggle('K', _ttsKoEnabled, () {
-            setState(() => _ttsKoEnabled = !_ttsKoEnabled);
-            _saveSettings();
-          }),
-          // Voice KO
-          _buildDropdown<String>(
+            onChanged: (v) => setState(() { _voiceJa = v!; _saveSettings(); }),
+          )),
+          _labeledSetting('KO', _buildToggle('', _ttsKoEnabled, () {
+            setState(() => _ttsKoEnabled = !_ttsKoEnabled); _saveSettings();
+          })),
+          _labeledSetting('KO음성', _buildDropdown<String>(
             value: _voiceKo,
             items: {'nova': '여', 'ash': '남'},
-            onChanged: (v) => setState(() {
-              _voiceKo = v!;
-              _saveSettings();
-            }),
-          ),
-          // Font size
-          _buildDropdown<double>(
+            onChanged: (v) => setState(() { _voiceKo = v!; _saveSettings(); }),
+          )),
+          _labeledSetting('크기', _buildDropdown<double>(
             value: _fontSize,
             items: {12.0: '12', 14.0: '14', 16.0: '16', 18.0: '18', 20.0: '20', 24.0: '24', 28.0: '28', 32.0: '32'},
-            onChanged: (v) => setState(() {
-              _fontSize = v!;
-              _saveSettings();
-            }),
-          ),
-          // TTS Speed
-          if (_mode == 'browser')
-            _buildDropdown<double>(
+            onChanged: (v) => setState(() { _fontSize = v!; _saveSettings(); }),
+          )),
+          // TTS Speed (browser only)
+          if (_mode == 'browser') ...[
+            _labeledSetting('속도', _buildDropdown<double>(
               value: _ttsSpeed,
               items: {0.5: '0.5x', 0.75: '0.75x', 1.0: '1x', 1.25: '1.25x', 1.5: '1.5x'},
-              onChanged: (v) => setState(() {
-                _ttsSpeed = v!;
-                _saveSettings();
-              }),
-            ),
-          // Pause timeout
-          if (_mode == 'browser')
-            _buildDropdown<int>(
+              onChanged: (v) => setState(() { _ttsSpeed = v!; _saveSettings(); }),
+            )),
+            _labeledSetting('묵음', _buildDropdown<int>(
               value: _pauseSeconds,
               items: {2: '2s', 3: '3s', 5: '5s', 7: '7s', 30: 'OFF'},
-              onChanged: (v) => setState(() {
-                _pauseSeconds = v!;
-                _saveSettings();
-              }),
-            ),
+              onChanged: (v) => setState(() { _pauseSeconds = v!; _saveSettings(); }),
+            )),
+          ],
+          // VAD threshold (realtime only)
+          if (_mode == 'realtime')
+            _labeledSetting('감도', _buildDropdown<double>(
+              value: _vadThreshold,
+              items: {0.3: '0.3', 0.5: '0.5', 0.7: '0.7', 0.8: '0.8', 0.9: '0.9', 0.95: '0.95'},
+              onChanged: (v) => setState(() { _vadThreshold = v!; _saveSettings(); }),
+            )),
         ],
       ),
+    );
+  }
+
+  Widget _labeledSetting(String label, Widget child) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(label, style: const TextStyle(fontSize: 9, color: Colors.grey)),
+        const SizedBox(width: 2),
+        child,
+      ],
     );
   }
 
