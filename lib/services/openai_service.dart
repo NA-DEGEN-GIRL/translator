@@ -7,7 +7,7 @@ class OpenAIService {
 
   OpenAIService(this.apiKey);
 
-  Future<Map<String, String?>> translate(String text, String direction) async {
+  Future<Map<String, String?>> translate(String text, String direction, {String model = 'gpt-5.4-nano'}) async {
     final systemPrompt = direction == 'ko2ja'
         ? 'You are a Korean→Japanese translator. Translate the input to natural Japanese. '
             'Reply in JSON: {"translated": "<Japanese>", "intent_korean": "<copy input as-is>"}'
@@ -21,7 +21,7 @@ class OpenAIService {
         'Content-Type': 'application/json',
       },
       body: jsonEncode({
-        'model': 'gpt-4.1-mini',
+        'model': model,
         'messages': [
           {'role': 'system', 'content': systemPrompt},
           {'role': 'user', 'content': text},

@@ -32,6 +32,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
 
   // Settings
   String _mode = 'browser'; // browser, openai
+  String _model = 'gpt-5.4-nano';
   bool _ttsJaEnabled = false;
   bool _ttsKoEnabled = false;
   String _voiceJa = 'onyx';
@@ -65,6 +66,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
       _voiceKo = prefs.getString('voiceKo') ?? 'nova';
       _fontSize = prefs.getDouble('fontSize') ?? 16;
       _mode = prefs.getString('mode') ?? 'browser';
+      _model = prefs.getString('model') ?? 'gpt-5.4-nano';
     });
   }
 
@@ -76,6 +78,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     prefs.setString('voiceKo', _voiceKo);
     prefs.setDouble('fontSize', _fontSize);
     prefs.setString('mode', _mode);
+    prefs.setString('model', _model);
   }
 
   String _detectLang(String text) {
@@ -120,7 +123,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
         forceDirection ?? (_detectLang(text) == 'ko' ? 'ko2ja' : 'ja2ko');
 
     try {
-      final result = await _openai.translate(text, direction);
+      final result = await _openai.translate(text, direction, model: _model);
       final translated = result['translated'] ?? '';
 
       final msg = ChatMessage(
@@ -297,6 +300,21 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
             items: {'browser': '브라우저', 'openai': 'OpenAI'},
             onChanged: (v) => setState(() {
               _mode = v!;
+              _saveSettings();
+            }),
+          ),
+          // Model
+          _buildDropdown<String>(
+            value: _model,
+            items: {
+              'gpt-4.1-nano': '4.1n',
+              'gpt-4.1-mini': '4.1m',
+              'gpt-5.4-nano': '5.4n',
+              'gpt-5.4-mini': '5.4m',
+              'gpt-5.4': '5.4',
+            },
+            onChanged: (v) => setState(() {
+              _model = v!;
               _saveSettings();
             }),
           ),
