@@ -23,19 +23,23 @@ Future<String?> _loadApiKey() async {
 }
 
 Future<void> saveApiKey(String key) async {
-  if (!kIsWeb) {
+  if (kIsWeb) {
+    // Web: no secure storage, use SharedPreferences
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('openai_api_key', key);
+  } else {
+    // Android/iOS: secure storage only, no SharedPreferences
     await _storage.write(key: 'openai_api_key', value: key);
   }
-  final prefs = await SharedPreferences.getInstance();
-  await prefs.setString('openai_api_key', key);
 }
 
 Future<void> clearApiKey() async {
-  if (!kIsWeb) {
+  if (kIsWeb) {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('openai_api_key');
+  } else {
     await _storage.delete(key: 'openai_api_key');
   }
-  final prefs = await SharedPreferences.getInstance();
-  await prefs.remove('openai_api_key');
 }
 
 void main() async {
