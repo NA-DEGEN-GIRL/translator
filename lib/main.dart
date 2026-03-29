@@ -1,22 +1,46 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'screens/translator_screen.dart';
 
 const _builtInKey = String.fromEnvironment('OPENAI_API_KEY', defaultValue: '');
+const _storage = FlutterSecureStorage();
+
+Future<String?> _loadApiKey() async {
+  if (_builtInKey.isNotEmpty) return _builtInKey;
+
+  // Try secure storage first (Android/iOS)
+  if (!kIsWeb) {
+    final secure = await _storage.read(key: 'openai_api_key');
+    if (secure != null && secure.isNotEmpty) return secure;
+  }
+
+  // Fallback to SharedPreferences (web)
+  final prefs = await SharedPreferences.getInstance();
+  final saved = prefs.getString('openai_api_key') ?? '';
+  return saved.isNotEmpty ? saved : null;
+}
+
+Future<void> saveApiKey(String key) async {
+  if (!kIsWeb) {
+    await _storage.write(key: 'openai_api_key', value: key);
+  }
+  final prefs = await SharedPreferences.getInstance();
+  await prefs.setString('openai_api_key', key);
+}
+
+Future<void> clearApiKey() async {
+  if (!kIsWeb) {
+    await _storage.delete(key: 'openai_api_key');
+  }
+  final prefs = await SharedPreferences.getInstance();
+  await prefs.remove('openai_api_key');
+}
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
-  // Resolve API key before building the app
-  String? apiKey;
-  if (_builtInKey.isNotEmpty) {
-    apiKey = _builtInKey;
-  } else {
-    final prefs = await SharedPreferences.getInstance();
-    final saved = prefs.getString('openai_api_key') ?? '';
-    if (saved.isNotEmpty) apiKey = saved;
-  }
-
+  final apiKey = await _loadApiKey();
   runApp(KoJaApp(apiKey: apiKey));
 }
 
@@ -50,14 +74,20 @@ class ApiKeyScreen extends StatefulWidget {
 class _ApiKeyScreenState extends State<ApiKeyScreen> {
   final _controller = TextEditingController();
 
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
   Future<void> _saveAndGo() async {
     final key = _controller.text.trim();
     if (key.isEmpty) return;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('openai_api_key', key);
+    await saveApiKey(key);
     if (mounted) {
-      Navigator.of(context).pushReplacement(
+      Navigator.of(context).pushAndRemoveUntil(
         MaterialPageRoute(builder: (_) => TranslatorScreen(apiKey: key)),
+        (_) => false,
       );
     }
   }

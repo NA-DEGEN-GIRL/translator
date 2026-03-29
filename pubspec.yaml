@@ -18,6 +18,7 @@ dependencies:
   flutter_webrtc: ^1.4.1
   record: ^6.2.0
   web: ^1.1.1
+  flutter_secure_storage: ^10.0.0
 
 dev_dependencies:
   flutter_test:

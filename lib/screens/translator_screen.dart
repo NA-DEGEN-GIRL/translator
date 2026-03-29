@@ -12,6 +12,7 @@ import '../services/openai_service.dart';
 import '../services/speech_service.dart';
 import '../services/realtime_service.dart';
 import '../widgets/chat_bubble.dart';
+import '../main.dart' show clearApiKey, ApiKeyScreen;
 
 class TranslatorScreen extends StatefulWidget {
   final String apiKey;
@@ -348,6 +349,33 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
       _realtime?.sendText(text);
     } else {
       _handleTranslation(text);
+    }
+  }
+
+  Future<void> _resetApiKey() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('API 키 초기화'),
+        content: const Text('API 키를 초기화하시겠습니까?\n앱이 처음 화면으로 돌아갑니다.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('취소')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('초기화'),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true || !mounted) return;
+
+    await clearApiKey();
+    if (mounted) {
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const ApiKeyScreen()),
+        (_) => false,
+      );
     }
   }
 
@@ -713,6 +741,18 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
               items: {0.3: '0.3', 0.5: '0.5', 0.7: '0.7', 0.8: '0.8', 0.9: '0.9', 0.95: '0.95'},
               onChanged: (v) => setState(() { _vadThreshold = v!; _saveSettings(); }),
             )),
+          // API key reset
+          GestureDetector(
+            onTap: _resetApiKey,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.red.shade300),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text('키초기화', style: TextStyle(fontSize: 9, color: Colors.red.shade400, fontWeight: FontWeight.w600)),
+            ),
+          ),
         ],
       ),
     );
