@@ -55,6 +55,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
   double _ttsSpeed = 1.0;
   int _pauseSeconds = 3;
   double _vadThreshold = 0.9;
+  double _noiseThreshold = -30; // dB, below this = silence
   String _realtimeModel = 'gpt-realtime-mini';
 
   @override
@@ -89,6 +90,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
       _ttsSpeed = prefs.getDouble('ttsSpeed') ?? 1.0;
       _pauseSeconds = prefs.getInt('pauseSeconds') ?? 3;
       _realtimeModel = prefs.getString('realtimeModel') ?? 'gpt-realtime-mini';
+      _noiseThreshold = prefs.getDouble('noiseThreshold') ?? -30;
     });
   }
 
@@ -104,6 +106,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     prefs.setDouble('ttsSpeed', _ttsSpeed);
     prefs.setInt('pauseSeconds', _pauseSeconds);
     prefs.setString('realtimeModel', _realtimeModel);
+    prefs.setDouble('noiseThreshold', _noiseThreshold);
   }
 
   String _detectLang(String text) {
@@ -263,7 +266,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
       // Silence detection for mirror mic
       if (_pauseSeconds < 30) {
         _ampSub = _recorder.onAmplitudeChanged(const Duration(milliseconds: 200)).listen((amp) {
-          if (amp.current < -30) {
+          if (amp.current < _noiseThreshold) {
             _silenceTimer ??= Timer(Duration(seconds: _pauseSeconds), () {
               if (_isMirrorListening) _stopMirrorListening();
             });
@@ -381,7 +384,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     // Silence detection
     if (_pauseSeconds < 30) { // 30 = OFF
       _ampSub = _recorder.onAmplitudeChanged(const Duration(milliseconds: 200)).listen((amp) {
-        if (amp.current < -30) {
+        if (amp.current < _noiseThreshold) {
           // Silence — start timer if not started
           _silenceTimer ??= Timer(Duration(seconds: _pauseSeconds), () {
             if (_isRecording) _stopOpenAIRecording(forceDirection: forceDirection);
@@ -677,6 +680,13 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
               value: _pauseSeconds,
               items: {2: '2s', 3: '3s', 5: '5s', 7: '7s', 30: 'OFF'},
               onChanged: (v) => setState(() { _pauseSeconds = v!; _saveSettings(); }),
+            )),
+          // Noise threshold (openai only)
+          if (_mode == 'openai')
+            _labeledSetting('소음', _buildDropdown<double>(
+              value: _noiseThreshold,
+              items: {-20.0: '높음', -30.0: '보통', -40.0: '낮음', -50.0: '조용'},
+              onChanged: (v) => setState(() { _noiseThreshold = v!; _saveSettings(); }),
             )),
           // VAD threshold (realtime only)
           if (_mode == 'realtime')
