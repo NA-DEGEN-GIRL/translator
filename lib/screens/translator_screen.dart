@@ -311,6 +311,8 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     try {
       // Read recorded file as bytes
       final bytes = await _readFileBytes(path);
+      // Web uses blob URLs (auto garbage collected), no cleanup needed
+
       if (bytes.isEmpty || bytes.length < 1000) {
         setState(() => _interimText = '');
         return;

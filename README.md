@@ -1,75 +1,71 @@
 # Korean-Japanese Interpreter
 
-한국어-일본어 실시간 양방향 통역 웹앱
+한국어-일본어 실시간 양방향 통역 앱 (Flutter — Android / Web)
 
 ## Features
 
 - **분할 화면** — 위쪽(상대방용, 180도 회전) / 아래쪽(내 뷰)으로 테이블에 놓고 양쪽에서 대화 가능
-- **4가지 파이프라인** — 브라우저 / 로컬 / OpenAI / Realtime
-- **음성 인식** — 양쪽 모두 마이크 버튼으로 음성 입력 가능
+- **3가지 모드** — 브라우저 / OpenAI / Realtime
+- **음성 인식** — 양쪽 모두 마이크 버튼으로 음성 입력
 - **텍스트 입력** — 키보드로 직접 입력, 언어 자동 감지
-- **역번역 검증** — 번역 결과 아래에 역번역을 표시하여 의도 전달 확인
-- **대화 컨텍스트** — 이전 대화를 기억하여 문맥에 맞는 번역 (브라우저/OpenAI 모드)
+- **역번역 검증** — 번역 결과 아래에 역번역 표시
+- **GPT 모델 선택** — gpt-4.1-nano ~ gpt-5.4 중 선택 가능 (기본: gpt-5.4-nano)
+- **TTS 음성 선택** — 언어별 남/여 음성, on/off, 속도 조절
 - **글자 크기 조절** — 12~32px
-- **묵음 타임아웃** — auto / 2s~7s / OFF (브라우저 모드)
-- **비밀번호 보호** — APP_PASSWORD 설정 시 로그인 필요
+- **묵음 타임아웃** — 2s~7s / OFF (브라우저 모드)
+- **설정 토글** — 기어 버튼으로 설정 줄 접기/펼치기
+- **서버 불필요** — 앱에서 OpenAI API 직접 호출
 
 ## Pipeline Modes
 
-| 모드 | STT (음성인식) | 번역 | TTS (음성합성) | 비용 | 오프라인 |
-|---|---|---|---|---|---|
-| **브라우저** | Browser Web Speech API | OpenAI GPT-4.1-mini | Browser speechSynthesis | API 과금 | X |
-| **로컬** | Whisper (local) | TranslateGemma-4B (local) | Kokoro (JA) + Browser (KO) | 무료 | O |
-| **OpenAI** | OpenAI Whisper | GPT-4.1-mini | gpt-4o-mini-tts | API 과금 | X |
-| **Realtime** | OpenAI Realtime API (WebRTC speech-to-speech, 통합) ||| API 과금 | X |
+| 모드 | STT (음성인식) | 번역 | TTS (음성합성) |
+|---|---|---|---|
+| **브라우저** | speech_to_text (기기 내장) | OpenAI GPT | flutter_tts (기기 내장) |
+| **OpenAI** | record → OpenAI Whisper API | OpenAI GPT | OpenAI gpt-4o-mini-tts |
+| **Realtime** | OpenAI Realtime API (WebRTC, speech-to-speech 통합) |||
 
 ## Quick Start
 
-### 1. 요구사항
-- Python 3.11+
-- OpenAI API Key (브라우저/OpenAI/Realtime 모드)
-- Chrome 브라우저 (브라우저 모드 음성 인식)
-- GPU 권장 (로컬 모드 — Whisper, TranslateGemma-4B, Kokoro)
+### 요구사항
+- Flutter 3.x+
+- OpenAI API Key
+- Android Studio (APK 빌드 시) 또는 Chrome (웹)
 
-### 2. 설치
-
-```bash
-cd kor-jap-translator
-
-uv venv
-source .venv/bin/activate
-uv pip install -r requirements.txt
-
-# 로컬 모드 사용 시 (선택)
-uv pip install -r requirements-local.txt
-```
-
-### 3. API 키 설정
+### 설치 및 실행
 
 ```bash
-cp .env.example .env
-# OPENAI_API_KEY=sk-proj-...
-# APP_PASSWORD=your-password  (선택, 비워두면 비밀번호 없음)
+git clone https://github.com/NA-DEGEN-GIRL/translator.git
+cd translator
+git checkout flutter-app
+
+flutter pub get
 ```
 
-### 4. 실행
+### 웹에서 실행
 
 ```bash
-python main.py
+# API 키 내장
+flutter run -d chrome --dart-define=OPENAI_API_KEY=sk-proj-...
+
+# 또는 웹 서버 모드
+flutter run -d web-server --web-port 8002 --dart-define=OPENAI_API_KEY=sk-proj-...
 ```
 
-브라우저에서 http://localhost:8001 접속
-
-### 5. 배포 (Docker)
+### APK 빌드
 
 ```bash
-docker build -t translator .
-docker run -d -p 443:443 --env-file .env translator
+flutter build apk --dart-define=OPENAI_API_KEY=sk-proj-...
+# → build/app/outputs/flutter-apk/app-release.apk
 ```
 
-## Usage
+### API 키 없이 실행
 
-### 화면 구성
+```bash
+flutter run -d chrome
+# → 앱에서 API 키 입력 화면 표시, SharedPreferences에 저장
+```
+
+## 화면 구성
 
 ```
 ┌──────────────────────────┐
@@ -80,39 +76,48 @@ docker run -d -p 443:443 --env-file .env translator
 ├──────────────────────────┤
 │  한국어⇄일본어통역          │
 │  [대화 내용]               │
-│  [설정] [입력창] [마이크]    │
+│  [⚙설정] [입력] [마이크]    │
 └──────────────────────────┘
 ```
 
-### 한국어 화자 (아래쪽)
-1. 텍스트 입력 또는 마이크 버튼으로 한국어 입력
-2. 언어 자동 감지 → 일본어로 번역 + 음성 재생
-3. 역번역으로 의도 전달 확인
+## 설정
 
-### 일본어 화자 (위쪽)
-1. 마이크 버튼 클릭 → 일본어로 말하기
-2. 자동으로 한국어 번역 + 음성 재생
+| 설정 | 설명 |
+|---|---|
+| 모드 | 브라우저 / OpenAI / RT |
+| GPT 모델 | 4.1n / 4.1m / 5.4n / 5.4m / 5.4 |
+| J / K 토글 | 언어별 TTS on/off |
+| 음성 | 남/여 선택 |
+| 글자 크기 | 12~32px |
+| TTS 속도 | 0.5x~1.5x (브라우저 모드) |
+| 묵음 타임아웃 | 2s~7s / OFF (브라우저 모드) |
 
 ## Tech Stack
 
 | 구성 요소 | 기술 |
 |---|---|
-| Backend | Python FastAPI |
-| Frontend | Vanilla HTML/CSS/JS |
-| 번역 (OpenAI/브라우저) | OpenAI GPT-4.1-mini |
-| 번역 (로컬) | TranslateGemma-4B |
+| Framework | Flutter (Android + Web) |
+| 번역 | OpenAI GPT-4.1 / GPT-5.4 |
 | TTS (OpenAI) | gpt-4o-mini-tts |
-| TTS (로컬 JA) | Kokoro TTS |
-| TTS (브라우저/로컬 KO) | Browser speechSynthesis |
-| STT (OpenAI) | OpenAI Whisper |
-| STT (로컬) | Whisper (local) |
-| STT (브라우저) | Web Speech API |
-| Realtime | OpenAI Realtime API (WebRTC) |
+| TTS (브라우저) | flutter_tts |
+| STT (브라우저) | speech_to_text |
+| STT (OpenAI) | record + Whisper API |
+| Realtime | flutter_webrtc + OpenAI Realtime API |
+| 상태 저장 | shared_preferences |
+| 오디오 재생 | audioplayers |
+
+## Branches
+
+| 브랜치 | 설명 |
+|---|---|
+| `main` | Python FastAPI 웹앱 (원본) |
+| `flutter-app` | Flutter 앱 (Android + Web) |
 
 ## Notes
 
-- **브라우저 호환성**: Chrome/Edge 권장 (Web Speech API 지원)
-- **비용**: OpenAI/브라우저 모드는 API 과금. 로컬 모드는 무료 (GPU 필요)
-- **네트워크**: 로컬 모드는 오프라인 가능. 나머지 모드는 인터넷 필요
-- **HTTPS**: 모바일 마이크 사용 시 HTTPS 필요 (localhost 제외)
+- **서버 불필요**: Flutter 앱이 OpenAI API를 직접 호출 (API 키는 앱에 내장 또는 입력)
+- **브라우저 모드**: 기기 내장 STT/TTS 사용, API 비용은 번역만 발생
+- **OpenAI 모드**: STT + 번역 + TTS 모두 OpenAI API (고품질, 비용 높음)
+- **Realtime 모드**: WebRTC speech-to-speech (최저 지연, 모델이 대화로 빠질 수 있음)
+- **HTTPS**: 모바일 웹에서 마이크 사용 시 HTTPS 필요
 - **사용 시나리오**: 여행, 식당, 호텔 등에서 테이블에 폰을 놓고 양쪽에서 대화
