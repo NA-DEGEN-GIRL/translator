@@ -7,12 +7,28 @@ class OpenAIService {
 
   OpenAIService(this.apiKey);
 
-  Future<Map<String, String?>> translate(String text, String direction, {String model = 'gpt-5.4-nano'}) async {
+  Future<Map<String, String?>> translate(
+    String text,
+    String direction, {
+    String model = 'gpt-5.4-nano',
+    List<Map<String, String>> context = const [],
+  }) async {
     final systemPrompt = direction == 'ko2ja'
         ? 'You are a Korean→Japanese translator. Translate the input to natural Japanese. '
             'Reply in JSON: {"translated": "<Japanese>", "intent_korean": "<copy input as-is>"}'
         : 'You are a Japanese→Korean translator. Translate the input to natural Korean. '
             'Reply in JSON: {"translated": "<Korean>"}';
+
+    final messages = <Map<String, String>>[
+      {'role': 'system', 'content': systemPrompt},
+    ];
+
+    // Add conversation context (last 3 exchanges)
+    for (final ctx in context.take(6)) {
+      messages.add(ctx);
+    }
+
+    messages.add({'role': 'user', 'content': text});
 
     final response = await http.post(
       Uri.parse('https://api.openai.com/v1/chat/completions'),
@@ -22,10 +38,7 @@ class OpenAIService {
       },
       body: jsonEncode({
         'model': model,
-        'messages': [
-          {'role': 'system', 'content': systemPrompt},
-          {'role': 'user', 'content': text},
-        ],
+        'messages': messages,
         'temperature': 0.3,
         'response_format': {'type': 'json_object'},
       }),

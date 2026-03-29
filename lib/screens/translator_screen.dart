@@ -144,7 +144,15 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
         forceDirection ?? (_detectLang(text) == 'ko' ? 'ko2ja' : 'ja2ko');
 
     try {
-      final result = await _openai.translate(text, direction, model: _model);
+      // Build conversation context from recent messages
+      final ctx = _messages.reversed.take(6).toList().reversed.map((m) {
+        return <String, String>{
+          'role': 'user',
+          'content': m.original,
+        };
+      }).toList();
+
+      final result = await _openai.translate(text, direction, model: _model, context: ctx);
       final translated = result['translated'] ?? '';
 
       final msg = ChatMessage(
@@ -167,7 +175,8 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
 
       if (shouldPlay && translated.isNotEmpty) {
         if (_mode == 'browser') {
-          await _speech.speak(translated, ttsLang, rate: _ttsSpeed);
+          final gender = (ttsLang == 'ja' ? _voiceJa : _voiceKo) == 'nova' || (ttsLang == 'ja' ? _voiceJa : _voiceKo) == 'coral' ? 'female' : 'male';
+          await _speech.speak(translated, ttsLang, rate: _ttsSpeed, gender: gender);
         } else {
           await _playOpenAITTS(
               translated, ttsLang, ttsLang == 'ja' ? _voiceJa : _voiceKo);
@@ -186,7 +195,8 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
       await _audioPlayer.play(BytesSource(audioBytes));
     } catch (e) {
       // Fallback to browser TTS
-      await _speech.speak(text, lang);
+      final g = (lang == 'ja' ? _voiceJa : _voiceKo) == 'nova' || (lang == 'ja' ? _voiceJa : _voiceKo) == 'coral' ? 'female' : 'male';
+      await _speech.speak(text, lang, gender: g);
     }
   }
 
@@ -194,6 +204,8 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     if (_isListening || _isProcessing) return;
     if (_isMirrorListening) _stopMirrorListening();
 
+    // Warmup TTS on first user interaction (browser requires gesture)
+    await _speech.warmupTts();
     await _speech.initialize();
     setState(() {
       _isListening = true;
@@ -224,38 +236,86 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
 
   void _startMirrorListening() async {
     if (_isMirrorListening || _isProcessing) return;
-    if (_isListening) _stopListening();
+    if (_isListening || _isRecording) _stopListening();
 
-    await _speech.initialize();
-    setState(() {
-      _isMirrorListening = true;
-      _mirrorInterimText = '';
-    });
+    await _speech.warmupTts();
 
-    await _speech.startListening(
-      locale: 'ja_JP',
-      onResult: (text, isFinal) {
-        setState(() => _mirrorInterimText = text);
-        if (isFinal && text.isNotEmpty) {
-          _stopMirrorListening();
-          _handleTranslation(text, forceDirection: 'ja2ko');
-        }
-      },
-      onDone: () => setState(() => _isMirrorListening = false),
-    );
+    if (_mode == 'openai') {
+      // OpenAI STT: record + Whisper
+      final hasPermission = await _recorder.hasPermission();
+      if (!hasPermission) {
+        _showError('마이크 권한이 필요합니다');
+        return;
+      }
+      setState(() {
+        _isMirrorListening = true;
+        _mirrorInterimText = '録音中... (ボタンを押して停止)';
+      });
+      await _recorder.start(
+        const RecordConfig(encoder: AudioEncoder.opus, numChannels: 1),
+        path: '',
+      );
+    } else {
+      // Browser STT
+      await _speech.initialize();
+      setState(() {
+        _isMirrorListening = true;
+        _mirrorInterimText = '';
+      });
+      await _speech.startListening(
+        locale: 'ja_JP',
+        pauseSeconds: _pauseSeconds,
+        onResult: (text, isFinal) {
+          setState(() => _mirrorInterimText = text);
+          if (isFinal && text.isNotEmpty) {
+            _stopMirrorListening();
+            _handleTranslation(text, forceDirection: 'ja2ko');
+          }
+        },
+        onDone: () => setState(() => _isMirrorListening = false),
+      );
+    }
   }
 
   void _stopMirrorListening() async {
-    await _speech.stopListening();
-    setState(() {
-      _isMirrorListening = false;
-      _mirrorInterimText = '';
-    });
+    if (_mode == 'openai' && _isMirrorListening) {
+      final path = await _recorder.stop();
+      setState(() {
+        _isMirrorListening = false;
+        _mirrorInterimText = '音声認識中...';
+      });
+      if (path != null) {
+        try {
+          final bytes = await _readFileBytes(path);
+          if (bytes.isNotEmpty && bytes.length >= 1000) {
+            final text = await _openai.stt(bytes, 'ja');
+            setState(() => _mirrorInterimText = '');
+            if (text.isNotEmpty) {
+              _handleTranslation(text, forceDirection: 'ja2ko');
+            }
+          } else {
+            setState(() => _mirrorInterimText = '');
+          }
+        } catch (e) {
+          setState(() => _mirrorInterimText = '');
+          _showError(e.toString());
+        }
+      } else {
+        setState(() => _mirrorInterimText = '');
+      }
+    } else {
+      await _speech.stopListening();
+      setState(() {
+        _isMirrorListening = false;
+        _mirrorInterimText = '';
+      });
+    }
   }
 
-  void _sendText() {
+  void _sendText() async {
     final text = _textController.text.trim();
     if (text.isEmpty || _isProcessing) return;
+    await _speech.warmupTts();
     _textController.clear();
     if (_mode == 'realtime' && _realtimeActive) {
       _realtime?.sendText(text);
@@ -473,7 +533,8 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
   Future<void> _replayMessage(ChatMessage msg) async {
     final lang = msg.direction == 'ko2ja' ? 'ja' : 'ko';
     if (_mode == 'browser') {
-      await _speech.speak(msg.translated, lang);
+      final gr = (lang == 'ja' ? _voiceJa : _voiceKo) == 'nova' || (lang == 'ja' ? _voiceJa : _voiceKo) == 'coral' ? 'female' : 'male';
+      await _speech.speak(msg.translated, lang, gender: gr);
     } else {
       await _playOpenAITTS(
           msg.translated, lang, lang == 'ja' ? _voiceJa : _voiceKo);
