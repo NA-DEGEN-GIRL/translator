@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Korean-Japanese Interpreter</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="app">
+        <header class="header">
+            <h1>KO <span class="swap-icon">&#8644;</span> JA</h1>
+            <div class="header-controls">
+                <button class="toggle-chip" id="ttsJaToggle" title="일본어 음성 출력">
+                    <span class="toggle-dot on"></span> JA음성
+                </button>
+                <button class="toggle-chip" id="ttsKoToggle" title="한국어 음성 출력">
+                    <span class="toggle-dot on"></span> KO음성
+                </button>
+                <label class="silence-setting" title="묵음 자동 정지 시간">
+                    <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"/></svg>
+                    <select id="silenceTimeout">
+                        <option value="2000">2s</option>
+                        <option value="3000" selected>3s</option>
+                        <option value="5000">5s</option>
+                        <option value="7000">7s</option>
+                        <option value="0">OFF</option>
+                    </select>
+                </label>
+            </div>
+        </header>
+
+        <main class="chat-container" id="chatContainer">
+            <div class="welcome-msg">
+                <p>한국어 또는 일본어로 입력하세요</p>
+                <p class="sub">언어를 자동으로 감지하여 번역합니다</p>
+                <p class="sub">마이크 또는 텍스트 입력 모두 가능</p>
+            </div>
+        </main>
+
+        <footer class="controls">
+            <div class="status" id="status"></div>
+            <div class="input-row">
+                <input type="text" class="text-input" id="textInput" placeholder="한국어 또는 일본어 입력..." autocomplete="off">
+                <button class="send-btn" id="sendBtn" aria-label="전송">
+                    <svg viewBox="0 0 24 24" fill="currentColor" width="22" height="22"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+                </button>
+                <button class="mic-btn" id="micBtn" aria-label="마이크">
+                    <svg class="mic-icon" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
+                        <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+                    </svg>
+                    <div class="mic-pulse"></div>
+                </button>
+                <button class="mic-lang-btn" id="micLangBtn" title="마이크 인식 언어 전환">
+                    <span class="mic-lang-label" id="micLangLabel">KO</span>
+                </button>
+            </div>
+            <div class="interim-text" id="interimText"></div>
+        </footer>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
