@@ -248,4 +248,4 @@ translator/
 
 ## License
 
-Private use.
+MIT License. See [LICENSE](LICENSE).
