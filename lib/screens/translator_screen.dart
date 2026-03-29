@@ -680,7 +680,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
           if (_mode == 'browser' || _mode == 'openai')
             _labeledSetting('묵음', _buildDropdown<int>(
               value: _pauseSeconds,
-              items: {2: '2s', 3: '3s', 5: '5s', 7: '7s', 30: 'OFF'},
+              items: {1: '1s', 2: '2s', 3: '3s', 5: '5s', 7: '7s', 30: 'OFF'},
               onChanged: (v) => setState(() { _pauseSeconds = v!; _saveSettings(); }),
             )),
           // Noise threshold (openai only)
