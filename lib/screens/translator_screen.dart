@@ -1,9 +1,11 @@
+import 'dart:io' as java_io;
 import 'dart:typed_data';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:audioplayers/audioplayers.dart';
-import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:record/record.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:http/http.dart' as http_client;
 import '../services/openai_service.dart';
 import '../services/speech_service.dart';
@@ -37,7 +39,6 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
 
   // Realtime
   RealtimeService? _realtime;
-  final RTCVideoRenderer _remoteRenderer = RTCVideoRenderer();
   bool _realtimeActive = false;
 
   // Settings
@@ -60,14 +61,12 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     super.initState();
     _openai = OpenAIService(widget.apiKey);
     _speech.initialize();
-    _remoteRenderer.initialize();
     _loadSettings();
   }
 
   @override
   void dispose() {
     _realtime?.stop();
-    _remoteRenderer.dispose();
     _recorder.dispose();
     _textController.dispose();
     _myScrollController.dispose();
@@ -204,7 +203,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     }
   }
 
-  void _startListening() async {
+  Future<void> _startListening() async {
     if (_isListening || _isProcessing) return;
     if (_isMirrorListening) _stopMirrorListening();
 
@@ -230,7 +229,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     );
   }
 
-  void _stopListening() async {
+  Future<void> _stopListening() async {
     await _speech.stopListening();
     setState(() {
       _isListening = false;
@@ -238,7 +237,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     });
   }
 
-  void _startMirrorListening() async {
+  Future<void> _startMirrorListening() async {
     if (_isMirrorListening || _isProcessing) return;
     if (_isListening || _isRecording) _stopListening();
 
@@ -257,7 +256,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
       });
       await _recorder.start(
         const RecordConfig(encoder: AudioEncoder.opus, numChannels: 1),
-        path: '',
+        path: kIsWeb ? '' : '${(await getTemporaryDirectory()).path}/rec_${DateTime.now().millisecondsSinceEpoch}.opus',
       );
     } else {
       // Browser STT
@@ -281,7 +280,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     }
   }
 
-  void _stopMirrorListening() async {
+  Future<void> _stopMirrorListening() async {
     if (_mode == 'openai' && _isMirrorListening) {
       final path = await _recorder.stop();
       setState(() {
@@ -316,7 +315,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     }
   }
 
-  void _sendText() async {
+  Future<void> _sendText() async {
     final text = _textController.text.trim();
     if (text.isEmpty || _isProcessing) return;
     await _speech.warmupTts();
@@ -354,7 +353,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
 
     await _recorder.start(
       const RecordConfig(encoder: AudioEncoder.opus, numChannels: 1),
-      path: '', // empty for stream/blob on web
+      path: kIsWeb ? '' : '${(await getTemporaryDirectory()).path}/rec_${DateTime.now().millisecondsSinceEpoch}.opus', // empty for stream/blob on web
     );
   }
 
@@ -395,10 +394,16 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
   }
 
   Future<Uint8List> _readFileBytes(String path) async {
-    // On web, path is a blob URL — fetch it
     try {
-      final response = await http_client.get(Uri.parse(path));
-      return response.bodyBytes;
+      if (kIsWeb) {
+        // Web: path is a blob URL
+        final response = await http_client.get(Uri.parse(path));
+        return response.bodyBytes;
+      } else {
+        // Android/iOS: path is a file path
+        final file = java_io.File(path);
+        return await file.readAsBytes();
+      }
     } catch (_) {
       return Uint8List(0);
     }
@@ -496,6 +501,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
           // Always fetch back-translation for verification
           final reverseDir = outputLang == 'ja' ? 'ja2ko' : 'ko2ja';
           _openai.translate(turn.output, reverseDir, model: _model).then((r) {
+            if (!mounted) return;
             if (r['translated']?.isNotEmpty ?? false) {
               setState(() {
                 final idx = _messages.indexOf(msg);
@@ -522,10 +528,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
         break;
 
       case 'remote_stream':
-        // Set remote stream to renderer for audio playback
-        if (_realtime?.remoteStream != null) {
-          _remoteRenderer.srcObject = _realtime!.remoteStream;
-        }
+        // Audio playback handled by RealtimeService's RTCVideoRenderer
         break;
     }
   }

@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 
 class OpenAIService {
   final String apiKey;
+  static const _timeout = Duration(seconds: 30);
 
   OpenAIService(this.apiKey);
 
@@ -23,7 +24,6 @@ class OpenAIService {
       {'role': 'system', 'content': systemPrompt},
     ];
 
-    // Add conversation context (last 3 exchanges)
     for (final ctx in context.take(6)) {
       messages.add(ctx);
     }
@@ -42,20 +42,23 @@ class OpenAIService {
         'temperature': 0.3,
         'response_format': {'type': 'json_object'},
       }),
-    );
+    ).timeout(_timeout);
 
     if (response.statusCode != 200) {
-      throw Exception('Translation failed: ${response.statusCode}');
+      throw Exception('Translation failed: ${response.statusCode} ${response.body}');
     }
 
-    final data = jsonDecode(response.body);
-    final result = jsonDecode(data['choices'][0]['message']['content']);
-
-    return {
-      'translated': result['translated'] ?? '',
-      'back_translation':
-          direction == 'ko2ja' ? result['intent_korean'] : null,
-    };
+    try {
+      final data = jsonDecode(response.body);
+      final result = jsonDecode(data['choices'][0]['message']['content']);
+      return {
+        'translated': result['translated'] ?? '',
+        'back_translation':
+            direction == 'ko2ja' ? result['intent_korean'] : null,
+      };
+    } catch (e) {
+      throw Exception('Translation parse error: $e');
+    }
   }
 
   Future<Uint8List> tts(String text, String lang, {String? voice}) async {
@@ -77,7 +80,7 @@ class OpenAIService {
         'instructions': instructions,
         'speed': 1.15,
       }),
-    );
+    ).timeout(_timeout);
 
     if (response.statusCode != 200) {
       throw Exception('TTS failed: ${response.statusCode}');
@@ -100,14 +103,18 @@ class OpenAIService {
       filename: 'audio.webm',
     ));
 
-    final response = await request.send();
+    final response = await request.send().timeout(_timeout);
     final body = await response.stream.bytesToString();
 
     if (response.statusCode != 200) {
       throw Exception('STT failed: ${response.statusCode} $body');
     }
 
-    final data = jsonDecode(body);
-    return data['text'] ?? '';
+    try {
+      final data = jsonDecode(body);
+      return data['text'] ?? '';
+    } catch (e) {
+      throw Exception('STT parse error: $e');
+    }
   }
 }

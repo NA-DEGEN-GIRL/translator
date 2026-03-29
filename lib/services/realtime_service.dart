@@ -79,7 +79,9 @@ Examples:
     final ephemeralKey = tokenData['value'] as String;
 
     // 2. Create peer connection
-    _pc = await createPeerConnection({});
+    _pc = await createPeerConnection({
+      'iceServers': [{'urls': 'stun:stun.l.google.com:19302'}],
+    });
 
     // 3. Remote audio — use RTCVideoRenderer for playback
     _remoteRenderer = RTCVideoRenderer();
@@ -192,7 +194,9 @@ Examples:
         break;
 
       case 'output_audio_buffer.stopped':
-        Future.delayed(const Duration(milliseconds: 800), () => muteMic(false));
+        Future.delayed(const Duration(milliseconds: 800), () {
+          if (_active) muteMic(false);
+        });
         break;
 
       case 'response.done':
