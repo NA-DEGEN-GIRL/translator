@@ -928,25 +928,31 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
                                 overflow: TextOverflow.ellipsis,
                               ),
                             ),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              _buildCircleButton(
-                                icon: Icons.mic,
-                                size: 36,
-                                color: _isMirrorListening
-                                    ? Colors.red
-                                    : const Color(0xFFE85D75),
-                                onTap: _isMirrorListening
-                                    ? _stopMirrorListening
-                                    : _startMirrorListening,
-                              ),
-                              const SizedBox(width: 8),
-                              Text(
-                                '押して話す→翻訳',
-                                style: TextStyle(fontSize: 10, color: Colors.grey),
-                              ),
-                            ],
+                          if (_mode == 'realtime')
+                            Text(
+                              'そのまま話してください',
+                              style: TextStyle(fontSize: 10, color: Colors.grey),
+                            )
+                          else
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                _buildCircleButton(
+                                  icon: Icons.mic,
+                                  size: 36,
+                                  color: _isMirrorListening
+                                      ? Colors.red
+                                      : const Color(0xFFE85D75),
+                                  onTap: _isMirrorListening
+                                      ? _stopMirrorListening
+                                      : _startMirrorListening,
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  '押して話す→翻訳',
+                                  style: TextStyle(fontSize: 10, color: Colors.grey),
+                                ),
+                              ],
                           ),
                         ],
                       ),
