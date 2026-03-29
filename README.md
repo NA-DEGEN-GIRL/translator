@@ -1,69 +1,69 @@
-# Korean-Japanese Interpreter
+# KO⇄JA Translator
 
 한국어-일본어 실시간 양방향 통역 앱 (Flutter — Android / Web)
 
 ## Features
 
-- **분할 화면** — 위쪽(상대방용, 180도 회전) / 아래쪽(내 뷰)으로 테이블에 놓고 양쪽에서 대화 가능
+- **분할 화면** — 위쪽(상대방용, 180도 회전) / 아래쪽(내 뷰), 테이블에 놓고 양쪽에서 대화
 - **3가지 모드** — 브라우저 / OpenAI / Realtime
-- **음성 인식** — 양쪽 모두 마이크 버튼으로 음성 입력
-- **텍스트 입력** — 키보드로 직접 입력, 언어 자동 감지
+- **음성 인식** — 양쪽 마이크 버튼으로 음성 입력
+- **텍스트 입력** — 키보드 입력, 언어 자동 감지
 - **역번역 검증** — 번역 결과 아래에 역번역 표시
-- **GPT 모델 선택** — gpt-4.1-nano ~ gpt-5.4 중 선택 가능 (기본: gpt-5.4-nano)
-- **TTS 음성 선택** — 언어별 남/여 음성, on/off, 속도 조절
-- **글자 크기 조절** — 12~32px
-- **묵음 타임아웃** — 2s~7s / OFF (브라우저 모드)
-- **설정 토글** — 기어 버튼으로 설정 줄 접기/펼치기
-- **서버 불필요** — 앱에서 OpenAI API 직접 호출
+- **GPT 모델 선택** — gpt-4.1-nano ~ gpt-5.4
+- **TTS 음성 선택** — 언어별 남/여, on/off, 속도 조절
+- **Realtime** — OpenAI Realtime API (WebRTC speech-to-speech)
+- **API 키 보안** — flutter_secure_storage (Android 키스토어 암호화)
+- **텍스트 선택/복사** — 번역 결과 길게 눌러 복사
 
 ## Pipeline Modes
 
-| 모드 | STT (음성인식) | 번역 | TTS (음성합성) |
+| 모드 | STT | 번역 | TTS |
 |---|---|---|---|
-| **브라우저** | speech_to_text (기기 내장) | OpenAI GPT | flutter_tts (기기 내장) |
-| **OpenAI** | record → OpenAI Whisper API | OpenAI GPT | OpenAI gpt-4o-mini-tts |
-| **Realtime** | OpenAI Realtime API (WebRTC, speech-to-speech 통합) |||
+| **브라우저** | 기기 내장 (speech_to_text) | OpenAI GPT | 기기 내장 (flutter_tts) |
+| **OpenAI** | 녹음 → OpenAI Whisper | OpenAI GPT | OpenAI gpt-4o-mini-tts |
+| **Realtime** | WebRTC (통합) | Realtime API | WebRTC (통합) |
 
 ## Quick Start
 
 ### 요구사항
 - Flutter 3.x+
 - OpenAI API Key
-- Android Studio (APK 빌드 시) 또는 Chrome (웹)
+- Android Studio (APK) 또는 Chrome (웹)
 
-### 설치 및 실행
+### 설치
 
 ```bash
 git clone https://github.com/NA-DEGEN-GIRL/translator.git
 cd translator
-git checkout flutter-app
-
 flutter pub get
 ```
 
-### 웹에서 실행
+### 실행 (웹)
 
 ```bash
-# API 키 내장
-flutter run -d chrome --dart-define=OPENAI_API_KEY=sk-proj-...
+# API 키 없이 — 앱에서 직접 입력
+flutter run -d chrome
 
-# 또는 웹 서버 모드
-flutter run -d web-server --web-port 8002 --dart-define=OPENAI_API_KEY=sk-proj-...
+# API 키 내장 (개인용)
+flutter run -d chrome --dart-define=OPENAI_API_KEY=your-key-here
 ```
 
 ### APK 빌드
 
 ```bash
-flutter build apk --dart-define=OPENAI_API_KEY=sk-proj-...
-# → build/app/outputs/flutter-apk/app-release.apk
+# API 키 없이 (권장 — 앱에서 입력)
+flutter build apk --release
+
+# API 키 내장 (개인용 — 디컴파일 시 키 추출 가능, 주의)
+flutter build apk --release --dart-define=OPENAI_API_KEY=your-key-here
 ```
 
-### API 키 없이 실행
+### API 키 관리
 
-```bash
-flutter run -d chrome
-# → 앱에서 API 키 입력 화면 표시, SharedPreferences에 저장
-```
+- **첫 실행**: API 키 입력 화면 표시
+- **저장**: Android — flutter_secure_storage (키스토어 암호화), Web — SharedPreferences
+- **변경**: 설정 → `키초기화` → 새 키 입력
+- **`--dart-define`으로 빌드 시**: 내장 키 우선 사용 (입력 화면 스킵)
 
 ## 화면 구성
 
@@ -85,12 +85,15 @@ flutter run -d chrome
 | 설정 | 설명 |
 |---|---|
 | 모드 | 브라우저 / OpenAI / RT |
-| GPT 모델 | 4.1n / 4.1m / 5.4n / 5.4m / 5.4 |
-| J / K 토글 | 언어별 TTS on/off |
-| 음성 | 남/여 선택 |
-| 글자 크기 | 12~32px |
-| TTS 속도 | 0.5x~1.5x (브라우저 모드) |
-| 묵음 타임아웃 | 2s~7s / OFF (브라우저 모드) |
+| 모델 | GPT 4.1n~5.4 / Realtime mini~1.5 |
+| J / K | TTS on/off |
+| 음성 | 남/여 |
+| 크기 | 12~32px |
+| 속도 | 0.5x~1.5x (브라우저) |
+| 묵음 | 1s~7s / OFF |
+| 소음 | 높/보통/낮/조용 (OpenAI) |
+| 감도 | 0.3~0.95 (Realtime VAD) |
+| 키초기화 | API 키 삭제 + 입력 화면 |
 
 ## Tech Stack
 
@@ -99,25 +102,21 @@ flutter run -d chrome
 | Framework | Flutter (Android + Web) |
 | 번역 | OpenAI GPT-4.1 / GPT-5.4 |
 | TTS (OpenAI) | gpt-4o-mini-tts |
-| TTS (브라우저) | flutter_tts |
-| STT (브라우저) | speech_to_text |
+| TTS (기기) | flutter_tts |
+| STT (기기) | speech_to_text |
 | STT (OpenAI) | record + Whisper API |
 | Realtime | flutter_webrtc + OpenAI Realtime API |
-| 상태 저장 | shared_preferences |
+| 키 저장 | flutter_secure_storage |
+| 설정 저장 | shared_preferences |
 | 오디오 재생 | audioplayers |
 
-## Branches
+## Security
 
-| 브랜치 | 설명 |
-|---|---|
-| `main` | Python FastAPI 웹앱 (원본) |
-| `flutter-app` | Flutter 앱 (Android + Web) |
+- **API 키**: 앱에서 직접 입력 → OS 키스토어 암호화 저장 (Android)
+- **`--dart-define`**: 편의용. APK에 평문 포함되므로 공개 배포 시 사용 금지
+- **저장소**: 실제 API 키 없음. `.env`, `.pem` 등은 `.gitignore`
+- **권장**: 키 미내장 빌드 (`flutter build apk --release`) + 앱에서 키 입력
 
-## Notes
+## License
 
-- **서버 불필요**: Flutter 앱이 OpenAI API를 직접 호출 (API 키는 앱에 내장 또는 입력)
-- **브라우저 모드**: 기기 내장 STT/TTS 사용, API 비용은 번역만 발생
-- **OpenAI 모드**: STT + 번역 + TTS 모두 OpenAI API (고품질, 비용 높음)
-- **Realtime 모드**: WebRTC speech-to-speech (최저 지연, 모델이 대화로 빠질 수 있음)
-- **HTTPS**: 모바일 웹에서 마이크 사용 시 HTTPS 필요
-- **사용 시나리오**: 여행, 식당, 호텔 등에서 테이블에 폰을 놓고 양쪽에서 대화
+Private use.
