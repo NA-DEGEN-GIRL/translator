@@ -19,6 +19,7 @@ class SpeechService {
     required String locale,
     required Function(String text, bool isFinal) onResult,
     required Function() onDone,
+    int pauseSeconds = 3,
   }) async {
     if (!_initialized) await initialize();
     await _stt.listen(
@@ -27,7 +28,7 @@ class SpeechService {
         onResult(result.recognizedWords, result.finalResult);
       },
       listenFor: const Duration(seconds: 30),
-      pauseFor: const Duration(seconds: 3),
+      pauseFor: Duration(seconds: pauseSeconds),
       listenOptions: SpeechListenOptions(
         cancelOnError: true,
         partialResults: true,
@@ -41,9 +42,9 @@ class SpeechService {
 
   bool get isListening => _stt.isListening;
 
-  Future<void> speak(String text, String lang) async {
+  Future<void> speak(String text, String lang, {double rate = 1.0}) async {
     await _tts.setLanguage(lang == 'ja' ? 'ja-JP' : 'ko-KR');
-    await _tts.setSpeechRate(0.5);
+    await _tts.setSpeechRate(rate);
     await _tts.speak(text);
   }
 

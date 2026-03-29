@@ -1,10 +1,10 @@
-import 'dart:io';
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:audioplayers/audioplayers.dart';
+import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/openai_service.dart';
 import '../services/speech_service.dart';
+import '../services/realtime_service.dart';
 import '../widgets/chat_bubble.dart';
 
 class TranslatorScreen extends StatefulWidget {
@@ -30,8 +30,13 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
   String _interimText = '';
   String _mirrorInterimText = '';
 
+  // Realtime
+  RealtimeService? _realtime;
+  final RTCVideoRenderer _remoteRenderer = RTCVideoRenderer();
+  bool _realtimeActive = false;
+
   // Settings
-  String _mode = 'browser'; // browser, openai
+  String _mode = 'browser'; // browser, openai, realtime
   String _model = 'gpt-5.4-nano';
   bool _ttsJaEnabled = false;
   bool _ttsKoEnabled = false;
@@ -39,17 +44,23 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
   String _voiceKo = 'nova';
   double _fontSize = 16;
   String _micLang = 'ko';
+  bool _showSettings = false;
+  double _ttsSpeed = 1.0;
+  int _pauseSeconds = 3;
 
   @override
   void initState() {
     super.initState();
     _openai = OpenAIService(widget.apiKey);
     _speech.initialize();
+    _remoteRenderer.initialize();
     _loadSettings();
   }
 
   @override
   void dispose() {
+    _realtime?.stop();
+    _remoteRenderer.dispose();
     _textController.dispose();
     _myScrollController.dispose();
     _mirrorScrollController.dispose();
@@ -67,6 +78,8 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
       _fontSize = prefs.getDouble('fontSize') ?? 16;
       _mode = prefs.getString('mode') ?? 'browser';
       _model = prefs.getString('model') ?? 'gpt-5.4-nano';
+      _ttsSpeed = prefs.getDouble('ttsSpeed') ?? 1.0;
+      _pauseSeconds = prefs.getInt('pauseSeconds') ?? 3;
     });
   }
 
@@ -79,6 +92,8 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     prefs.setDouble('fontSize', _fontSize);
     prefs.setString('mode', _mode);
     prefs.setString('model', _model);
+    prefs.setDouble('ttsSpeed', _ttsSpeed);
+    prefs.setInt('pauseSeconds', _pauseSeconds);
   }
 
   String _detectLang(String text) {
@@ -146,7 +161,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
 
       if (shouldPlay && translated.isNotEmpty) {
         if (_mode == 'browser') {
-          await _speech.speak(translated, ttsLang);
+          await _speech.speak(translated, ttsLang, rate: _ttsSpeed);
         } else {
           await _playOpenAITTS(
               translated, ttsLang, ttsLang == 'ja' ? _voiceJa : _voiceKo);
@@ -181,6 +196,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
 
     await _speech.startListening(
       locale: _micLang == 'ko' ? 'ko_KR' : 'ja_JP',
+      pauseSeconds: _pauseSeconds,
       onResult: (text, isFinal) {
         setState(() => _interimText = text);
         if (isFinal && text.isNotEmpty) {
@@ -235,7 +251,11 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     final text = _textController.text.trim();
     if (text.isEmpty || _isProcessing) return;
     _textController.clear();
-    _handleTranslation(text);
+    if (_mode == 'realtime' && _realtimeActive) {
+      _realtime?.sendText(text);
+    } else {
+      _handleTranslation(text);
+    }
   }
 
   void _clearChat() {
@@ -244,6 +264,130 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
       _interimText = '';
       _mirrorInterimText = '';
     });
+  }
+
+  // ===== Realtime =====
+  String _detectLangSimple(String text) {
+    int ko = 0, ja = 0;
+    for (final ch in text.runes) {
+      if ((ch >= 0xAC00 && ch <= 0xD7AF)) ko++;
+      if ((ch >= 0x3040 && ch <= 0x309F) || (ch >= 0x30A0 && ch <= 0x30FF)) ja++;
+    }
+    return ko >= ja ? 'ko' : 'ja';
+  }
+
+  Future<void> _startRealtime() async {
+    if (_realtimeActive) return;
+    setState(() => _interimText = 'Realtime 연결 중...');
+
+    _realtime = RealtimeService(
+      apiKey: widget.apiKey,
+      model: 'gpt-realtime-mini',
+      voice: _voiceJa == 'onyx' ? 'ash' : 'coral',
+      onEvent: _handleRealtimeEvent,
+    );
+
+    try {
+      await _realtime!.start();
+      setState(() {
+        _realtimeActive = true;
+        _interimText = 'Realtime 활성 — 말하세요';
+      });
+    } catch (e) {
+      _showError(e.toString());
+      setState(() {
+        _realtimeActive = false;
+        _interimText = '';
+      });
+    }
+  }
+
+  void _stopRealtime() {
+    _realtime?.stop();
+    setState(() {
+      _realtimeActive = false;
+      _interimText = '';
+      _mirrorInterimText = '';
+    });
+  }
+
+  void _handleRealtimeEvent(String type, Map<String, dynamic> event) {
+    switch (type) {
+      case 'input_audio_buffer.speech_started':
+        setState(() {
+          _interimText = '듣고 있습니다...';
+          _mirrorInterimText = '聞いています...';
+        });
+        break;
+
+      case 'input_audio_buffer.speech_stopped':
+        setState(() {
+          _interimText = '번역 중...';
+          _mirrorInterimText = '翻訳中...';
+        });
+        break;
+
+      case 'response.output_audio_transcript.delta':
+        final rid = event['response_id'] as String?;
+        if (rid != null && _realtime!.turns.containsKey(rid)) {
+          setState(() {
+            _interimText = _realtime!.turns[rid]!.output;
+            _mirrorInterimText = _realtime!.turns[rid]!.output;
+          });
+        }
+        break;
+
+      case 'response.done':
+        final rid = event['response']?['id'] as String?;
+        final turn = rid != null ? _realtime!.turns[rid] : null;
+        if (turn != null && turn.output.isNotEmpty) {
+          final outputLang = _detectLangSimple(turn.output);
+          final direction = outputLang == 'ja' ? 'ko2ja' : 'ja2ko';
+          final msg = ChatMessage(
+            original: turn.input.isNotEmpty ? turn.input : turn.output,
+            translated: turn.output,
+            direction: direction,
+          );
+          setState(() {
+            _messages.add(msg);
+            _interimText = '';
+            _mirrorInterimText = '';
+          });
+          _scrollToBottom();
+
+          // Async back-translation
+          if (turn.input.isEmpty) {
+            final reverseDir = outputLang == 'ja' ? 'ja2ko' : 'ko2ja';
+            _openai.translate(turn.output, reverseDir, model: _model).then((r) {
+              if (r['translated']?.isNotEmpty ?? false) {
+                setState(() {
+                  final idx = _messages.indexOf(msg);
+                  if (idx >= 0) {
+                    _messages[idx] = ChatMessage(
+                      original: r['translated']!,
+                      translated: msg.translated,
+                      direction: msg.direction,
+                    );
+                  }
+                });
+              }
+            }).catchError((_) {});
+          }
+
+          // Clean turn
+          if (rid != null) _realtime!.turns.remove(rid);
+        }
+        break;
+
+      case 'connection_lost':
+        _stopRealtime();
+        _showError('Realtime 연결이 끊어졌습니다');
+        break;
+
+      case 'remote_stream':
+        // Audio plays automatically via WebRTC
+        break;
+    }
   }
 
   void _showError(String msg) {
@@ -287,6 +431,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
   }
 
   Widget _buildSettingsRow() {
+    if (!_showSettings) return const SizedBox.shrink();
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       child: Wrap(
@@ -297,7 +442,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
           // Mode
           _buildDropdown<String>(
             value: _mode,
-            items: {'browser': '브라우저', 'openai': 'OpenAI'},
+            items: {'browser': '브라우저', 'openai': 'OpenAI', 'realtime': 'RT'},
             onChanged: (v) => setState(() {
               _mode = v!;
               _saveSettings();
@@ -355,6 +500,26 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
               _saveSettings();
             }),
           ),
+          // TTS Speed
+          if (_mode == 'browser')
+            _buildDropdown<double>(
+              value: _ttsSpeed,
+              items: {0.5: '0.5x', 0.75: '0.75x', 1.0: '1x', 1.25: '1.25x', 1.5: '1.5x'},
+              onChanged: (v) => setState(() {
+                _ttsSpeed = v!;
+                _saveSettings();
+              }),
+            ),
+          // Pause timeout
+          if (_mode == 'browser')
+            _buildDropdown<int>(
+              value: _pauseSeconds,
+              items: {2: '2s', 3: '3s', 5: '5s', 7: '7s'},
+              onChanged: (v) => setState(() {
+                _pauseSeconds = v!;
+                _saveSettings();
+              }),
+            ),
         ],
       ),
     );
@@ -418,6 +583,15 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       child: Row(
         children: [
+          // Clear
+          _buildCircleButton(
+            icon: Icons.delete_outline,
+            size: 28,
+            color: Colors.grey,
+            onTap: _clearChat,
+            outlined: true,
+          ),
+          const SizedBox(width: 4),
           // Text input
           Expanded(
             child: SizedBox(
@@ -450,8 +624,10 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
           _buildCircleButton(
             icon: Icons.mic,
             size: 36,
-            color: _isListening ? Colors.red : const Color(0xFF4A90D9),
-            onTap: _isListening ? _stopListening : _startListening,
+            color: (_isListening || _realtimeActive) ? Colors.red : const Color(0xFF4A90D9),
+            onTap: _mode == 'realtime'
+                ? (_realtimeActive ? _stopRealtime : _startRealtime)
+                : (_isListening ? _stopListening : _startListening),
           ),
           const SizedBox(width: 4),
           // Language toggle
@@ -486,12 +662,12 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
             ),
           ),
           const SizedBox(width: 4),
-          // Clear
+          // Settings toggle
           _buildCircleButton(
-            icon: Icons.clear_all,
-            size: 24,
-            color: Colors.grey,
-            onTap: _clearChat,
+            icon: _showSettings ? Icons.expand_more : Icons.settings,
+            size: 28,
+            color: _showSettings ? const Color(0xFF4A90D9) : Colors.grey,
+            onTap: () => setState(() => _showSettings = !_showSettings),
             outlined: true,
           ),
         ],
