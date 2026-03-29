@@ -171,7 +171,7 @@ let audioChunks = [];
 
 async function startOpenAIRecording(lang, sttUrl = '/api/stt') {
     try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } });
         audioChunks = [];
         mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
         mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunks.push(e.data); };
@@ -315,18 +315,13 @@ function createMessageBubble(original, translated, backTranslation, side) {
     const langTag = side === 'ko' ? 'KO→JA' : 'JA→KO';
 
     let html = `<div class="bubble">`;
-    html += `<div class="lang-tag">${langTag}</div>`;
+    html += `<div class="bubble-header"><span class="lang-tag">${langTag}</span><button class="replay-btn" data-text="${escapeAttr(translated)}" data-lang="${side === 'ko' ? 'ja' : 'ko'}"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/></svg></button></div>`;
     html += `<div class="original-text">${escapeHtml(original)}</div>`;
     html += `<div class="translated-text">${escapeHtml(translated)}</div>`;
 
     if (backTranslation) {
         html += `<div class="back-translation">(${escapeHtml(backTranslation)})</div>`;
     }
-
-    html += `<button class="replay-btn" data-text="${escapeAttr(translated)}" data-lang="${side === 'ko' ? 'ja' : 'ko'}">
-        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/></svg>
-        다시 듣기
-    </button>`;
     html += `</div>`;
 
     msg.innerHTML = html;
@@ -585,6 +580,7 @@ function sendText() {
 micBtn.addEventListener('click', () => {
     if (isRealtimeMode()) {
         if (realtimeActive) { stopRealtimeSession(); } else { startRealtimeSession(); }
+        return;
     } else {
         if (isListening) { stopMic(); } else { startMic(); }
     }
@@ -746,7 +742,7 @@ function startMirrorMic() {
         const mirrorSttUrl = mirrorMode === 'local' ? '/api/local/stt' : '/api/stt';
         (async () => {
             try {
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } });
                 mirrorAudioChunks = [];
                 mirrorMediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
                 mirrorMediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) mirrorAudioChunks.push(e.data); };
@@ -801,6 +797,26 @@ function stopMirrorMic() {
 mirrorMicBtn.addEventListener('click', () => {
     if (isMirrorListening) { stopMirrorMic(); } else { startMirrorMic(); }
 });
+
+function sendVadConfig() {
+    if (!dataChannel || dataChannel.readyState !== 'open') return;
+    const threshold = parseFloat(document.getElementById('vadThreshold').value);
+    dataChannel.send(JSON.stringify({
+        type: 'session.update',
+        session: {
+            type: 'realtime',
+            turn_detection: {
+                type: 'server_vad',
+                threshold: threshold,
+                silence_duration_ms: 1500,
+                prefix_padding_ms: 500,
+            },
+        },
+    }));
+    console.log('VAD threshold:', threshold);
+}
+
+document.getElementById('vadThreshold').addEventListener('change', sendVadConfig);
 
 // ===== Realtime API (WebRTC) =====
 let realtimeActive = false;
@@ -866,7 +882,7 @@ async function startRealtimeSession() {
         };
 
         // 4. Microphone input
-        localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        localStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } });
         localTrack = localStream.getTracks()[0];
         peerConnection.addTrack(localTrack, localStream);
 
@@ -874,7 +890,10 @@ async function startRealtimeSession() {
         dataChannel = peerConnection.createDataChannel('oai-events');
         dataChannel.addEventListener('open', () => {
             // Configure session after data channel opens
-            console.log('Realtime data channel opened');
+            // Try setting VAD with high threshold
+            // Try different formats since API is picky
+            sendVadConfig();
+            console.log('Realtime: sent VAD config');
         });
         dataChannel.addEventListener('message', handleRealtimeEvent);
 
@@ -968,8 +987,13 @@ function handleRealtimeEvent(e) {
     }
 
     switch (event.type) {
-        // User started speaking
+        // User started speaking — cancel ongoing response if any
         case 'input_audio_buffer.speech_started':
+            if (currentResponseId && dataChannel?.readyState === 'open') {
+                dataChannel.send(JSON.stringify({ type: 'response.cancel' }));
+                dataChannel.send(JSON.stringify({ type: 'output_audio_buffer.clear' }));
+            }
+            muteRealtimeMic(false);
             interimText.textContent = '듣고 있습니다...';
             mirrorInterimEl.textContent = '聞いています...';
             break;
@@ -1027,9 +1051,12 @@ function handleRealtimeEvent(e) {
             break;
         }
 
-        // Audio output finished — unmute
+        // Audio output finished — unmute after delay
         case 'output_audio_buffer.stopped':
-            setTimeout(() => muteRealtimeMic(false), 300);
+            setTimeout(() => {
+                muteRealtimeMic(false);
+                statusEl.textContent = '';
+            }, 800);
             break;
 
         // Response complete — create bubble
@@ -1097,6 +1124,9 @@ function handleRealtimeEvent(e) {
 
         case 'error':
             console.error('Realtime error:', event.error);
+            // Ignore non-critical errors silently
+            if (event.error?.code === 'unknown_parameter') break;
+            if (event.error?.message?.includes('no active response')) break;
             showError('Realtime 오류: ' + (event.error?.message || '알 수 없는 오류'));
             break;
     }

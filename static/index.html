@@ -5,29 +5,29 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Korean-Japanese Interpreter</title>
     <link rel="stylesheet" href="/static/style.css">
+    <link rel="manifest" href="/static/manifest.json">
+    <meta name="theme-color" content="#4A90D9">
 </head>
 <body>
     <div class="app">
         <!-- Top half: mirrored view for the other person -->
         <section class="mirror-half" id="mirrorHalf">
-            <div class="mirror-label">韓国語 ⇄ 日本語 通訳アプリ<br><span class="label-sub">한국어 ⇄ 일본어 통역앱</span></div>
+            <div class="mirror-label">韓国語⇄日本語通訳 / 한국어⇄일본어통역</div>
             <div class="chat-mirror" id="chatMirror"></div>
             <div class="mirror-controls">
                 <div class="mirror-interim" id="mirrorInterim"></div>
-                <!-- 일반 모드: 마이크 버튼 -->
                 <div class="mirror-input-row normal-mode-only" id="mirrorNormalControls">
-                    <button class="mic-btn mirror-mic-btn" id="mirrorMicBtn" aria-label="マイク">
+                    <button class="mic-btn mirror-mic-btn mic-btn-sm" id="mirrorMicBtn" aria-label="マイク">
                         <svg class="mic-icon" viewBox="0 0 24 24" fill="currentColor">
                             <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
                             <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
                         </svg>
                         <div class="mic-pulse"></div>
                     </button>
-                    <span class="mirror-mic-hint">このボタンを押して話すと<br>韓国語に翻訳されます</span>
+                    <span class="mirror-mic-hint">押して話す→韓国語に翻訳</span>
                 </div>
-                <!-- Realtime 모드: 안내 문구 -->
                 <div class="mirror-realtime-hint realtime-mode-only" id="mirrorRealtimeHint" style="display:none;">
-                    <span class="realtime-hint-text">そのまま話してください<br>自動的に韓国語に翻訳されます</span>
+                    <span class="realtime-hint-text">そのまま話してください</span>
                 </div>
                 <div class="mirror-status" id="mirrorStatus"></div>
             </div>
@@ -37,7 +37,7 @@
 
         <!-- Bottom half: my view + controls -->
         <section class="my-half">
-            <div class="my-label">한국어 ⇄ 일본어 통역앱<br><span class="label-sub">韓国語 ⇄ 日本語 通訳アプリ</span></div>
+            <div class="my-label">한국어⇄일본어통역 / 韓国語⇄日本語通訳</div>
             <div class="chat-container" id="chatContainer">
                 <div class="welcome-msg">
                     <p>한국어 또는 일본어로 입력하세요</p>
@@ -47,7 +47,6 @@
 
             <footer class="controls">
                 <div class="settings-row">
-                    <button class="toggle-chip" id="clearBtn" title="대화 내용 삭제">CLR</button>
                     <label class="silence-setting" title="모드">
                         <select id="pipelineMode">
                             <option value="browser" selected>브라우저</option>
@@ -57,44 +56,47 @@
                         </select>
                     </label>
                     <button class="toggle-chip" id="ttsJaToggle" title="일본어 음성 출력">
-                        <span class="toggle-dot"></span> JA
+                        <span class="toggle-dot"></span> J
                     </button>
                     <select class="voice-select" id="voiceJa" title="일본어 음성">
                         <option value="onyx" selected>남</option>
                         <option value="coral">여</option>
                     </select>
                     <button class="toggle-chip" id="ttsKoToggle" title="한국어 음성 출력">
-                        <span class="toggle-dot"></span> KO
+                        <span class="toggle-dot"></span> K
                     </button>
                     <select class="voice-select" id="voiceKo" title="한국어 음성">
                         <option value="nova" selected>여</option>
-                        <option value="alloy">중성</option>
                         <option value="ash">남</option>
                     </select>
-                    <label class="silence-setting" title="텍스트 크기">
-                        <span style="font-size:13px;font-weight:700;">A</span>
-                        <select id="fontSizeSetting">
-                            <option value="12">12</option>
-                            <option value="14">14</option>
-                            <option value="16" selected>16</option>
-                            <option value="18">18</option>
-                            <option value="20">20</option>
-                            <option value="24">24</option>
-                            <option value="28">28</option>
-                            <option value="32">32</option>
-                        </select>
-                    </label>
-                    <label class="silence-setting normal-mode-only browser-only" title="묵음 자동 정지 시간">
-                        <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"/></svg>
-                        <select id="silenceTimeout">
-                            <option value="auto" selected>auto</option>
-                            <option value="2000">2s</option>
-                            <option value="3000">3s</option>
-                            <option value="5000">5s</option>
-                            <option value="7000">7s</option>
-                            <option value="0">OFF</option>
-                        </select>
-                    </label>
+                    <select class="voice-select" id="fontSizeSetting" title="텍스트 크기">
+                        <option value="12">12</option>
+                        <option value="14">14</option>
+                        <option value="16" selected>16</option>
+                        <option value="18">18</option>
+                        <option value="20">20</option>
+                        <option value="24">24</option>
+                        <option value="28">28</option>
+                        <option value="32">32</option>
+                    </select>
+                    <select class="voice-select realtime-mode-only" id="vadThreshold" title="VAD 감도">
+                        <option value="0.3">0.3</option>
+                        <option value="0.4">0.4</option>
+                        <option value="0.5">0.5</option>
+                        <option value="0.6">0.6</option>
+                        <option value="0.7">0.7</option>
+                        <option value="0.8">0.8</option>
+                        <option value="0.9" selected>0.9</option>
+                        <option value="0.95">0.95</option>
+                    </select>
+                    <select class="voice-select normal-mode-only browser-only" id="silenceTimeout" title="묵음 시간">
+                        <option value="auto" selected>auto</option>
+                        <option value="2000">2s</option>
+                        <option value="3000">3s</option>
+                        <option value="5000">5s</option>
+                        <option value="7000">7s</option>
+                        <option value="0">OFF</option>
+                    </select>
                 </div>
                 <div class="status" id="status"></div>
                 <div class="input-row">
@@ -112,6 +114,7 @@
                     <button class="mic-lang-btn normal-mode-only" id="micLangBtn" title="마이크 인식 언어 전환">
                         <span class="mic-lang-label" id="micLangLabel">KO</span>
                     </button>
+                    <button class="clr-btn" id="clearBtn" title="대화 내용 삭제">C</button>
                 </div>
                 <div class="interim-text" id="interimText"></div>
             </footer>

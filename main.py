@@ -19,8 +19,71 @@ BASE_DIR = Path(__file__).resolve().parent
 
 load_dotenv()
 
+from fastapi import Request, Response, Cookie
+from fastapi.responses import HTMLResponse
+
 app = FastAPI()
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+APP_PASSWORD = os.getenv("APP_PASSWORD", "")
+
+
+@app.middleware("http")
+async def auth_middleware(request: Request, call_next):
+    # Skip auth if no password set
+    if not APP_PASSWORD:
+        return await call_next(request)
+
+    path = request.url.path
+
+    # Allow login page and static assets
+    if path == "/login" or path.startswith("/static/"):
+        return await call_next(request)
+
+    # Check auth cookie
+    token = request.cookies.get("auth_token")
+    if token == APP_PASSWORD:
+        return await call_next(request)
+
+    # API calls return 401
+    if path.startswith("/api/"):
+        return Response(status_code=401, content='{"detail":"인증 필요"}',
+                       media_type="application/json")
+
+    # Redirect to login
+    return HTMLResponse(LOGIN_PAGE)
+
+
+LOGIN_PAGE = """<!DOCTYPE html>
+<html><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Login</title>
+<style>
+body{font-family:sans-serif;display:flex;justify-content:center;align-items:center;height:100vh;margin:0;background:#f5f5f5}
+.login{background:#fff;padding:32px;border-radius:16px;box-shadow:0 2px 8px rgba(0,0,0,.1);text-align:center}
+h2{margin:0 0 16px;color:#333}
+input{width:200px;padding:12px;border:2px solid #ddd;border-radius:8px;font-size:16px;outline:none}
+input:focus{border-color:#4A90D9}
+button{margin-top:12px;padding:12px 32px;background:#4A90D9;color:#fff;border:none;border-radius:8px;font-size:16px;cursor:pointer}
+.err{color:#d32f2f;margin-top:8px;font-size:14px;display:none}
+</style></head><body>
+<div class="login">
+<h2>KO ⇄ JA</h2>
+<form onsubmit="return login()">
+<input type="password" id="pw" placeholder="비밀번호" autofocus>
+<br><button type="submit">입장</button>
+<div class="err" id="err">비밀번호가 틀립니다</div>
+</form></div>
+<script>
+function login(){
+  const pw=document.getElementById('pw').value;
+  document.cookie='auth_token='+pw+';path=/;max-age=31536000;SameSite=Strict';
+  fetch('/api/translate',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({text:'test',direction:'ko2ja'})})
+  .then(r=>{if(r.ok){location.reload()}else{document.getElementById('err').style.display='block'}})
+  .catch(()=>{document.getElementById('err').style.display='block'});
+  return false;
+}
+</script></body></html>"""
 
 ALLOWED_VOICES = {"alloy", "ash", "coral", "nova", "onyx"}
 
@@ -286,6 +349,13 @@ async def local_tts(req: TTSRequest):
 
     return StreamingResponse(iter([audio_bytes]), media_type="audio/wav")
 
+
+@app.get("/static/app-debug.apk")
+async def download_apk():
+    apk_path = BASE_DIR / "static" / "app-debug.apk"
+    if apk_path.exists():
+        return FileResponse(str(apk_path), media_type="application/vnd.android.package-archive", filename="KO-JA-Translator.apk")
+    raise HTTPException(status_code=404)
 
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 
