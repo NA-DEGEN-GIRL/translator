@@ -150,41 +150,45 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     final direction =
         forceDirection ?? (_detectLang(text) == 'ko' ? 'ko2ja' : 'ja2ko');
 
+    String translated = '';
+    String? backTranslation;
+
     try {
       final result = await _openai.translate(text, direction, model: _model);
-      final translated = result['translated'] ?? '';
+      translated = result['translated'] ?? '';
+      backTranslation = result['back_translation'];
 
-      final msg = ChatMessage(
-        original: text,
-        translated: translated,
-        backTranslation: result['back_translation'],
-        direction: direction,
-      );
+      if (mounted) {
+        setState(() {
+          _messages.add(ChatMessage(
+            original: text,
+            translated: translated,
+            backTranslation: backTranslation,
+            direction: direction,
+          ));
+        });
+        _scrollToBottom();
+      }
+    } catch (e) {
+      if (mounted) _showError(e.toString());
+    } finally {
+      if (mounted) setState(() => _isProcessing = false);
+    }
 
-      setState(() {
-        _messages.add(msg);
-      });
-      _scrollToBottom();
-
-      // TTS
+    // TTS after processing flag released — doesn't block next input
+    if (translated.isNotEmpty) {
       final ttsLang = direction == 'ko2ja' ? 'ja' : 'ko';
       final shouldPlay =
           (ttsLang == 'ja' && _ttsJaEnabled) ||
           (ttsLang == 'ko' && _ttsKoEnabled);
-
-      if (shouldPlay && translated.isNotEmpty) {
+      if (shouldPlay) {
         if (_mode == 'browser') {
           final gender = (ttsLang == 'ja' ? _voiceJa : _voiceKo) == 'nova' || (ttsLang == 'ja' ? _voiceJa : _voiceKo) == 'coral' ? 'female' : 'male';
-          await _speech.speak(translated, ttsLang, rate: _ttsSpeed, gender: gender);
+          _speech.speak(translated, ttsLang, rate: _ttsSpeed, gender: gender);
         } else {
-          await _playOpenAITTS(
-              translated, ttsLang, ttsLang == 'ja' ? _voiceJa : _voiceKo);
+          _playOpenAITTS(translated, ttsLang, ttsLang == 'ja' ? _voiceJa : _voiceKo);
         }
       }
-    } catch (e) {
-      _showError(e.toString());
-    } finally {
-      setState(() => _isProcessing = false);
     }
   }
 
@@ -199,9 +203,15 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     }
   }
 
+  Future<void> _stopAll() async {
+    if (_isListening) await _stopListening();
+    if (_isMirrorListening) await _stopMirrorListening();
+    if (_isRecording) await _stopOpenAIRecording();
+  }
+
   Future<void> _startListening() async {
     if (_isListening || _isProcessing) return;
-    if (_isMirrorListening) _stopMirrorListening();
+    await _stopAll();
 
     // Warmup TTS on first user interaction (browser requires gesture)
     await _speech.warmupTts();
@@ -235,7 +245,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
 
   Future<void> _startMirrorListening() async {
     if (_isMirrorListening || _isProcessing) return;
-    if (_isListening || _isRecording) _stopListening();
+    await _stopAll();
 
     await _speech.warmupTts();
 
@@ -355,7 +365,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
 
   Future<void> _startOpenAIRecording({String? forceDirection}) async {
     if (_isRecording || _isProcessing) return;
-    if (_isMirrorListening) _stopMirrorListening();
+    await _stopAll();
 
     final hasPermission = await _recorder.hasPermission();
     if (!hasPermission) {
@@ -483,11 +493,14 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
       });
       _updateRealtimeAudioMute();
     } catch (e) {
+      await _realtime?.stop();
       _showError(e.toString());
-      setState(() {
-        _realtimeActive = false;
-        _interimText = '';
-      });
+      if (mounted) {
+        setState(() {
+          _realtimeActive = false;
+          _interimText = '';
+        });
+      }
     }
   }
 
@@ -544,24 +557,26 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
           });
           _scrollToBottom();
 
-          // Always fetch back-translation for verification
-          final reverseDir = outputLang == 'ja' ? 'ja2ko' : 'ko2ja';
-          _openai.translate(turn.output, reverseDir, model: _model).then((r) {
-            if (!mounted) return;
-            if (r['translated']?.isNotEmpty ?? false) {
-              setState(() {
-                final idx = _messages.indexOf(msg);
-                if (idx >= 0) {
-                  _messages[idx] = ChatMessage(
-                    original: turn.input.isNotEmpty ? turn.input : r['translated']!,
-                    translated: msg.translated,
-                    backTranslation: r['translated'],
-                    direction: msg.direction,
-                  );
-                }
-              });
-            }
-          }).catchError((_) {});
+          // Back-translation only if no input transcript available
+          if (turn.input.isEmpty) {
+            final reverseDir = outputLang == 'ja' ? 'ja2ko' : 'ko2ja';
+            _openai.translate(turn.output, reverseDir, model: _model).then((r) {
+              if (!mounted) return;
+              if (r['translated']?.isNotEmpty ?? false) {
+                setState(() {
+                  final idx = _messages.indexOf(msg);
+                  if (idx >= 0) {
+                    _messages[idx] = ChatMessage(
+                      original: r['translated']!,
+                      translated: msg.translated,
+                      backTranslation: r['translated'],
+                      direction: msg.direction,
+                    );
+                  }
+                });
+              }
+            }).catchError((_) {});
+          }
 
           // Clean turn
           if (rid != null) _realtime!.turns.remove(rid);
@@ -580,6 +595,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
   }
 
   void _showError(String msg) {
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(msg), backgroundColor: Colors.red),
     );

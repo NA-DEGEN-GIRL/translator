@@ -16,7 +16,7 @@ class OpenAIService {
   }) async {
     final systemPrompt = direction == 'ko2ja'
         ? 'You are a Korean→Japanese translator. Translate the input to natural Japanese. '
-            'Reply in JSON: {"translated": "<Japanese>", "intent_korean": "<copy input as-is>"}'
+            'Reply in JSON: {"translated": "<Japanese>"}'
         : 'You are a Japanese→Korean translator. Translate the input to natural Korean. '
             'Reply in JSON: {"translated": "<Korean>"}';
 
@@ -53,8 +53,7 @@ class OpenAIService {
       final result = jsonDecode(data['choices'][0]['message']['content']);
       return {
         'translated': result['translated'] ?? '',
-        'back_translation':
-            direction == 'ko2ja' ? result['intent_korean'] : null,
+        'back_translation': null,
       };
     } catch (e) {
       throw Exception('Translation parse error: $e');

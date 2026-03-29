@@ -100,8 +100,8 @@ Examples:
       if (state == RTCPeerConnectionState.RTCPeerConnectionStateDisconnected ||
           state == RTCPeerConnectionState.RTCPeerConnectionStateFailed ||
           state == RTCPeerConnectionState.RTCPeerConnectionStateClosed) {
+        // Only notify — let UI call stop() to avoid double cleanup
         onEvent('connection_lost', {});
-        stop();
       }
     };
 

@@ -87,6 +87,18 @@ class SpeechService {
     int pauseSeconds = 3,
   }) async {
     if (!_initialized) await initialize();
+
+    _stt.statusListener = (status) {
+      if (status == 'done' || status == 'notListening') {
+        onDone();
+      }
+    };
+
+    _stt.errorListener = (error) {
+      _log('STT error: ${error.errorMsg}');
+      onDone();
+    };
+
     await _stt.listen(
       localeId: locale,
       onResult: (result) {
