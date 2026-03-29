@@ -100,7 +100,7 @@ class OpenAIService {
     request.files.add(http.MultipartFile.fromBytes(
       'file',
       audioBytes,
-      filename: 'audio.webm',
+      filename: 'audio.m4a',
     ));
 
     final response = await request.send().timeout(_timeout);

@@ -255,8 +255,8 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
         _mirrorInterimText = '録音中... (ボタンを押して停止)';
       });
       await _recorder.start(
-        const RecordConfig(encoder: AudioEncoder.opus, numChannels: 1),
-        path: kIsWeb ? '' : '${(await getTemporaryDirectory()).path}/rec_${DateTime.now().millisecondsSinceEpoch}.opus',
+        const RecordConfig(encoder: AudioEncoder.aacLc, numChannels: 1),
+        path: kIsWeb ? '' : '${(await getTemporaryDirectory()).path}/rec_${DateTime.now().millisecondsSinceEpoch}.m4a',
       );
     } else {
       // Browser STT
@@ -352,8 +352,8 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     });
 
     await _recorder.start(
-      const RecordConfig(encoder: AudioEncoder.opus, numChannels: 1),
-      path: kIsWeb ? '' : '${(await getTemporaryDirectory()).path}/rec_${DateTime.now().millisecondsSinceEpoch}.opus', // empty for stream/blob on web
+      const RecordConfig(encoder: AudioEncoder.aacLc, numChannels: 1),
+      path: kIsWeb ? '' : '${(await getTemporaryDirectory()).path}/rec_${DateTime.now().millisecondsSinceEpoch}.m4a', // empty for stream/blob on web
     );
   }
 
