@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io' as java_io;
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -258,6 +259,20 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
         const RecordConfig(encoder: AudioEncoder.aacLc, numChannels: 1),
         path: kIsWeb ? '' : '${(await getTemporaryDirectory()).path}/rec_${DateTime.now().millisecondsSinceEpoch}.m4a',
       );
+
+      // Silence detection for mirror mic
+      if (_pauseSeconds < 30) {
+        _ampSub = _recorder.onAmplitudeChanged(const Duration(milliseconds: 200)).listen((amp) {
+          if (amp.current < -30) {
+            _silenceTimer ??= Timer(Duration(seconds: _pauseSeconds), () {
+              if (_isMirrorListening) _stopMirrorListening();
+            });
+          } else {
+            _silenceTimer?.cancel();
+            _silenceTimer = null;
+          }
+        });
+      }
     } else {
       // Browser STT
       await _speech.initialize();
@@ -282,6 +297,10 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
 
   Future<void> _stopMirrorListening() async {
     if (_mode == 'openai' && _isMirrorListening) {
+      _silenceTimer?.cancel();
+      _silenceTimer = null;
+      _ampSub?.cancel();
+      _ampSub = null;
       final path = await _recorder.stop();
       setState(() {
         _isMirrorListening = false;
@@ -336,7 +355,10 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
   }
 
   // ===== OpenAI STT (record + Whisper) =====
-  Future<void> _startOpenAIRecording() async {
+  StreamSubscription<Amplitude>? _ampSub;
+  Timer? _silenceTimer;
+
+  Future<void> _startOpenAIRecording({String? forceDirection}) async {
     if (_isRecording || _isProcessing) return;
     if (_isMirrorListening) _stopMirrorListening();
 
@@ -348,17 +370,38 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
 
     setState(() {
       _isRecording = true;
-      _interimText = '녹음 중... (버튼을 다시 눌러 중지)';
+      _interimText = '녹음 중...';
     });
 
     await _recorder.start(
       const RecordConfig(encoder: AudioEncoder.aacLc, numChannels: 1),
-      path: kIsWeb ? '' : '${(await getTemporaryDirectory()).path}/rec_${DateTime.now().millisecondsSinceEpoch}.m4a', // empty for stream/blob on web
+      path: kIsWeb ? '' : '${(await getTemporaryDirectory()).path}/rec_${DateTime.now().millisecondsSinceEpoch}.m4a',
     );
+
+    // Silence detection
+    if (_pauseSeconds < 30) { // 30 = OFF
+      _ampSub = _recorder.onAmplitudeChanged(const Duration(milliseconds: 200)).listen((amp) {
+        if (amp.current < -30) {
+          // Silence — start timer if not started
+          _silenceTimer ??= Timer(Duration(seconds: _pauseSeconds), () {
+            if (_isRecording) _stopOpenAIRecording(forceDirection: forceDirection);
+          });
+        } else {
+          // Sound detected — reset timer
+          _silenceTimer?.cancel();
+          _silenceTimer = null;
+        }
+      });
+    }
   }
 
   Future<void> _stopOpenAIRecording({String? forceDirection}) async {
     if (!_isRecording) return;
+
+    _silenceTimer?.cancel();
+    _silenceTimer = null;
+    _ampSub?.cancel();
+    _ampSub = null;
 
     final path = await _recorder.stop();
     setState(() {
@@ -622,18 +665,19 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
             onChanged: (v) => setState(() { _fontSize = v!; _saveSettings(); }),
           )),
           // TTS Speed (browser only)
-          if (_mode == 'browser') ...[
+          if (_mode == 'browser')
             _labeledSetting('속도', _buildDropdown<double>(
               value: _ttsSpeed,
               items: {0.5: '0.5x', 0.75: '0.75x', 1.0: '1x', 1.25: '1.25x', 1.5: '1.5x'},
               onChanged: (v) => setState(() { _ttsSpeed = v!; _saveSettings(); }),
             )),
+          // Silence timeout (browser + openai)
+          if (_mode == 'browser' || _mode == 'openai')
             _labeledSetting('묵음', _buildDropdown<int>(
               value: _pauseSeconds,
               items: {2: '2s', 3: '3s', 5: '5s', 7: '7s', 30: 'OFF'},
               onChanged: (v) => setState(() { _pauseSeconds = v!; _saveSettings(); }),
             )),
-          ],
           // VAD threshold (realtime only)
           if (_mode == 'realtime')
             _labeledSetting('감도', _buildDropdown<double>(

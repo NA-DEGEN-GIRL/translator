@@ -246,9 +246,13 @@ Examples:
     _localStream = null;
     _localTrack = null;
     _remoteStream = null;
-    _remoteRenderer?.srcObject = null;
-    await _remoteRenderer?.dispose();
-    _remoteRenderer = null;
+    if (_remoteRenderer != null) {
+      try {
+        _remoteRenderer!.srcObject = null;
+        await _remoteRenderer!.dispose();
+      } catch (_) {}
+      _remoteRenderer = null;
+    }
     await _pc?.close();
     _pc = null;
     turns.clear();
