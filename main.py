@@ -168,7 +168,7 @@ async def create_realtime_session(req: RealtimeSessionRequest):
                 json={
                     "session": {
                         "type": "realtime",
-                        "model": "gpt-realtime-mini",
+                        "model": "gpt-realtime",
                         "audio": {"output": {"voice": voice}},
                         "instructions": REALTIME_SYSTEM_PROMPT,
                     }
@@ -213,6 +213,78 @@ async def stt(file: UploadFile, lang: str = Form("ko")):
         raise HTTPException(status_code=502, detail="음성 인식 서비스에 연결할 수 없습니다")
 
     return {"text": response.text}
+
+
+# ===== Local model endpoints =====
+import asyncio
+from functools import partial
+
+
+def _run_sync(func, *args):
+    """Run a sync function in a thread to avoid blocking the event loop."""
+    return asyncio.get_event_loop().run_in_executor(None, partial(func, *args))
+
+
+@app.post("/api/local/translate")
+async def local_translate(req: TranslateRequest):
+    try:
+        from local_models import translate_text
+        translated = await _run_sync(translate_text, req.text, req.direction)
+        if not translated:
+            raise ValueError("empty translation")
+        back = None
+        if req.direction == "ko2ja":
+            back = await _run_sync(translate_text, translated, "ja2ko")
+        return {"translated": translated, "back_translation": back}
+    except ImportError as e:
+        logger.error(f"Local model import error: {e}")
+        raise HTTPException(status_code=503, detail="로컬 번역 모델을 로드할 수 없습니다")
+    except Exception as e:
+        logger.error(f"Local translation error: {e}")
+        raise HTTPException(status_code=502, detail="로컬 번역 실패")
+
+
+@app.post("/api/local/stt")
+async def local_stt(file: UploadFile, lang: str = Form("ko")):
+    if lang not in LANG_CODES:
+        raise HTTPException(status_code=422, detail="lang must be 'ko' or 'ja'")
+
+    audio_data = await file.read()
+    if not audio_data:
+        raise HTTPException(status_code=422, detail="empty audio file")
+
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".webm", delete=True) as tmp:
+            tmp.write(audio_data)
+            tmp.flush()
+            from local_models import transcribe
+            text = await _run_sync(transcribe, tmp.name, lang)
+    except ImportError as e:
+        logger.error(f"Local model import error: {e}")
+        raise HTTPException(status_code=503, detail="로컬 STT 모델을 로드할 수 없습니다")
+    except Exception as e:
+        logger.error(f"Local STT error: {e}")
+        raise HTTPException(status_code=502, detail="로컬 음성 인식 실패")
+
+    return {"text": text}
+
+
+@app.post("/api/local/tts")
+async def local_tts(req: TTSRequest):
+    if req.lang != "ja":
+        raise HTTPException(status_code=422, detail="로컬 TTS는 일본어만 지원합니다")
+
+    try:
+        from local_models import synthesize_ja
+        audio_bytes = await _run_sync(synthesize_ja, req.text)
+    except ImportError as e:
+        logger.error(f"Local TTS import error: {e}")
+        raise HTTPException(status_code=503, detail="로컬 TTS 모델을 로드할 수 없습니다")
+    except Exception as e:
+        logger.error(f"Local TTS error: {e}")
+        raise HTTPException(status_code=502, detail="로컬 TTS 실패")
+
+    return StreamingResponse(iter([audio_bytes]), media_type="audio/wav")
 
 
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")

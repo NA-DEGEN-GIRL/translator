@@ -26,11 +26,11 @@ function saveSettings() {
     const settings = {
         ttsJaEnabled,
         ttsKoEnabled,
+        pipelineMode: document.getElementById('pipelineMode').value,
         voiceJa: document.getElementById('voiceJa').value,
         voiceKo: document.getElementById('voiceKo').value,
         fontSize: document.getElementById('fontSizeSetting').value,
         silenceTimeout: document.getElementById('silenceTimeout').value,
-        sttMode: document.getElementById('sttMode').value,
         micLang,
     };
     localStorage.setItem('interpreterSettings', JSON.stringify(settings));
@@ -57,10 +57,7 @@ function loadSettings() {
             document.documentElement.style.fontSize = s.fontSize + 'px';
         }
         if (s.silenceTimeout) document.getElementById('silenceTimeout').value = s.silenceTimeout;
-        if (s.sttMode) {
-            const mode = s.sttMode === 'browser' ? 'normal' : s.sttMode;
-            document.getElementById('sttMode').value = mode;
-        }
+        if (s.pipelineMode) document.getElementById('pipelineMode').value = s.pipelineMode;
         if (s.micLang) {
             micLang = s.micLang;
             micLangLabel.textContent = micLang === 'ko' ? 'KO' : 'JA';
@@ -92,8 +89,8 @@ function detectLang(text) {
 
 // ===== Speech Recognition =====
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-if (!SpeechRecognition) {
-    showError('이 브라우저는 음성 인식을 지원하지 않습니다. Chrome을 사용해주세요.');
+if (!SpeechRecognition && getPipelineMode() === 'browser') {
+    showError('브라우저 모드 음성 인식은 Chrome에서만 지원됩니다. 다른 모드를 선택해주세요.');
 }
 
 function getSilenceTimeout() {
@@ -172,7 +169,7 @@ function resetSilenceTimer() {
 let mediaRecorder = null;
 let audioChunks = [];
 
-async function startOpenAIRecording(lang) {
+async function startOpenAIRecording(lang, sttUrl = '/api/stt') {
     try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         audioChunks = [];
@@ -188,7 +185,7 @@ async function startOpenAIRecording(lang) {
                 const formData = new FormData();
                 formData.append('file', blob, 'audio.webm');
                 formData.append('lang', lang);
-                const res = await fetch('/api/stt', { method: 'POST', body: formData });
+                const res = await fetch(sttUrl, { method: 'POST', body: formData });
                 if (!res.ok) { const err = await res.json().catch(() => ({})); throw new Error(err.detail || 'STT 실패'); }
                 const data = await res.json();
                 statusEl.textContent = '';
@@ -212,10 +209,12 @@ function startMic() {
     const welcome = chatContainer.querySelector('.welcome-msg');
     if (welcome) welcome.remove();
 
-    if (getSttMode() === 'openai') {
-        interimText.textContent = '녹음 중... (버튼을 다시 눌러 중지)';
-        startOpenAIRecording(micLang).then(ok => { if (ok) setListening(true); });
-    } else {
+    const mode = getPipelineMode();
+    if (mode === 'openai' || mode === 'local') {
+        const sttUrl = mode === 'local' ? '/api/local/stt' : '/api/stt';
+        interimText.textContent = mode === 'local' ? '녹음 중... (로컬)' : '녹음 중... (OpenAI)';
+        startOpenAIRecording(micLang, sttUrl).then(ok => { if (ok) setListening(true); });
+    } else { // browser
         recognition = initRecognition();
         if (!recognition) return;
         try {
@@ -229,7 +228,8 @@ function startMic() {
 function stopMic() {
     if (!isListening) return;
     clearTimeout(silenceTimer);
-    if (getSttMode() === 'openai') {
+    const stopMode = getPipelineMode();
+    if (stopMode === 'openai' || stopMode === 'local') {
         interimText.textContent = '';
         stopOpenAIRecording();
         setListening(false);
@@ -250,10 +250,16 @@ async function handleSpeechResult(text, forceDirection) {
     const loadingEl = showLoading();
 
     try {
-        const translateRes = await fetch('/api/translate', {
+        const isLocal = getPipelineMode() === 'local';
+        const translateUrl = isLocal ? '/api/local/translate' : '/api/translate';
+        const translateBody = isLocal
+            ? { text, direction }
+            : { text, direction, context: conversationContext };
+
+        const translateRes = await fetch(translateUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text, direction, context: conversationContext }),
+            body: JSON.stringify(translateBody),
         });
 
         if (!translateRes.ok) {
@@ -281,10 +287,17 @@ async function handleSpeechResult(text, forceDirection) {
         const ttsLang = direction === 'ko2ja' ? 'ja' : 'ko';
         const shouldPlay = (ttsLang === 'ja' && ttsJaEnabled) || (ttsLang === 'ko' && ttsKoEnabled);
         if (shouldPlay) {
-            const voice = ttsLang === 'ja'
-                ? document.getElementById('voiceJa').value
-                : document.getElementById('voiceKo').value;
-            playTTS(data.translated, ttsLang, voice);
+            const pMode = getPipelineMode();
+            if (pMode === 'browser' || (pMode === 'local' && ttsLang === 'ko')) {
+                playBrowserTTS(data.translated, ttsLang);
+            } else if (pMode === 'local' && ttsLang === 'ja') {
+                playLocalTTS(data.translated);
+            } else {
+                const voice = ttsLang === 'ja'
+                    ? document.getElementById('voiceJa').value
+                    : document.getElementById('voiceKo').value;
+                playTTS(data.translated, ttsLang, voice);
+            }
         }
     } catch (err) {
         loadingEl.remove();
@@ -320,10 +333,19 @@ function createMessageBubble(original, translated, backTranslation, side) {
 
     msg.querySelector('.replay-btn').addEventListener('click', (e) => {
         const btn = e.currentTarget;
-        const replayVoice = btn.dataset.lang === 'ja'
-            ? document.getElementById('voiceJa').value
-            : document.getElementById('voiceKo').value;
-        playTTS(btn.dataset.text, btn.dataset.lang, replayVoice);
+        const lang = btn.dataset.lang;
+        const text = btn.dataset.text;
+        const pMode = getPipelineMode();
+        if (pMode === 'browser' || (pMode === 'local' && lang === 'ko')) {
+            playBrowserTTS(text, lang);
+        } else if (pMode === 'local' && lang === 'ja') {
+            playLocalTTS(text);
+        } else {
+            const voice = lang === 'ja'
+                ? document.getElementById('voiceJa').value
+                : document.getElementById('voiceKo').value;
+            playTTS(text, lang, voice);
+        }
     });
 
     return msg;
@@ -468,6 +490,43 @@ async function playTTSBlob(res) {
     });
 }
 
+// ===== Browser TTS =====
+function playBrowserTTS(text, lang) {
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = lang === 'ja' ? 'ja-JP' : 'ko-KR';
+    u.rate = 1.0;
+    statusEl.textContent = '재생 중...';
+    u.onend = () => { statusEl.textContent = ''; };
+    u.onerror = () => { statusEl.textContent = ''; };
+    speechSynthesis.speak(u);
+}
+
+// ===== Local Kokoro TTS (Japanese only) =====
+async function playLocalTTS(text) {
+    try {
+        statusEl.textContent = '음성 생성 중 (로컬)...';
+        const res = await fetch('/api/local/tts', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text, lang: 'ja' }),
+        });
+        if (!res.ok) {
+            // Fallback to browser TTS
+            playBrowserTTS(text, 'ja');
+            return;
+        }
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const audio = new Audio(url);
+        audio.onended = () => { URL.revokeObjectURL(url); statusEl.textContent = ''; };
+        audio.onerror = () => { URL.revokeObjectURL(url); statusEl.textContent = ''; };
+        statusEl.textContent = '재생 중...';
+        await audio.play();
+    } catch (err) {
+        playBrowserTTS(text, 'ja');
+    }
+}
+
 // ===== Utilities =====
 function showError(msg) {
     const toast = document.createElement('div');
@@ -524,7 +583,7 @@ function sendText() {
 
 // ===== Event Listeners =====
 micBtn.addEventListener('click', () => {
-    if (getSttMode() === 'realtime') {
+    if (isRealtimeMode()) {
         if (realtimeActive) { stopRealtimeSession(); } else { startRealtimeSession(); }
     } else {
         if (isListening) { stopMic(); } else { startMic(); }
@@ -563,23 +622,43 @@ function updateRealtimeAudioMute() {
 document.getElementById('voiceJa').addEventListener('change', saveSettings);
 document.getElementById('voiceKo').addEventListener('change', saveSettings);
 document.getElementById('silenceTimeout').addEventListener('change', saveSettings);
-document.getElementById('sttMode').addEventListener('change', () => {
-    // Clean up any active sessions when switching modes
+document.getElementById('clearBtn').addEventListener('click', () => {
+    chatContainer.innerHTML = '';
+    chatMirror.innerHTML = '';
+    conversationContext = [];
+    interimText.textContent = '';
+    mirrorInterimEl.textContent = '';
+    realtimeTurns = {};
+    lastUserTranscript = '';
+    currentResponseId = null;
+});
+
+document.getElementById('pipelineMode').addEventListener('change', () => {
     if (isListening) stopMic();
     if (isMirrorListening) stopMirrorMic();
     if (realtimeActive) stopRealtimeSession();
     updateModeUI();
     saveSettings();
+    // Warn if switching to browser mode without SpeechRecognition
+    if (getPipelineMode() === 'browser' && !SpeechRecognition) {
+        showError('브라우저 모드 음성 인식은 Chrome에서만 지원됩니다. 다른 모드를 선택해주세요.');
+    }
 });
 
-function getSttMode() {
-    return document.getElementById('sttMode').value;
+function getPipelineMode() {
+    return document.getElementById('pipelineMode').value;
+}
+
+function isRealtimeMode() {
+    return getPipelineMode() === 'realtime';
 }
 
 function updateModeUI() {
     const app = document.querySelector('.app');
-    const isRealtime = getSttMode() === 'realtime';
-    app.classList.toggle('realtime-active', isRealtime);
+    const mode = getPipelineMode();
+    app.classList.toggle('realtime-active', mode === 'realtime');
+    app.classList.toggle('mode-openai', mode === 'openai');
+    app.classList.toggle('mode-local', mode === 'local');
 }
 
 textInput.addEventListener('keydown', (e) => {
@@ -662,7 +741,9 @@ function startMirrorMic() {
     const welcome = chatContainer.querySelector('.welcome-msg');
     if (welcome) welcome.remove();
 
-    if (getSttMode() === 'openai') {
+    const mirrorMode = getPipelineMode();
+    if (mirrorMode === 'openai' || mirrorMode === 'local') {
+        const mirrorSttUrl = mirrorMode === 'local' ? '/api/local/stt' : '/api/stt';
         (async () => {
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -679,7 +760,7 @@ function startMirrorMic() {
                         const formData = new FormData();
                         formData.append('file', blob, 'audio.webm');
                         formData.append('lang', 'ja');
-                        const res = await fetch('/api/stt', { method: 'POST', body: formData });
+                        const res = await fetch(mirrorSttUrl, { method: 'POST', body: formData });
                         if (!res.ok) { const err = await res.json().catch(() => ({})); throw new Error(err.detail || 'STT失敗'); }
                         const data = await res.json();
                         mirrorStatusEl.textContent = '';
@@ -705,7 +786,8 @@ function startMirrorMic() {
 function stopMirrorMic() {
     if (!isMirrorListening) return;
     clearTimeout(mirrorSilenceTimer);
-    if (getSttMode() === 'openai') {
+    const mirrorStopMode = getPipelineMode();
+    if (mirrorStopMode === 'openai' || mirrorStopMode === 'local') {
         mirrorInterimEl.textContent = '';
         if (mirrorMediaRecorder?.state === 'recording') mirrorMediaRecorder.stop();
         mirrorMediaRecorder = null;
@@ -921,19 +1003,11 @@ function handleRealtimeEvent(e) {
             }
             break;
 
-        // Model starts generating audio — mute mic + check TTS toggle
-        case 'output_audio_buffer.started': {
+        // Model starts generating audio — mute mic
+        case 'output_audio_buffer.started':
             if (!isMuted) muteRealtimeMic(true);
-            // Language-aware TTS mute: check what language is being output
-            const rid2 = event.response_id;
-            const turnForAudio = rid2 ? realtimeTurns[rid2] : null;
-            if (turnForAudio && realtimeAudioEl) {
-                const outLang = detectLang(turnForAudio.output || '');
-                const shouldMute = (outLang === 'ja' && !ttsJaEnabled) || (outLang === 'ko' && !ttsKoEnabled);
-                realtimeAudioEl.muted = shouldMute;
-            }
+            // Don't decide mute here — output text is too short to detect language
             break;
-        }
 
         // Translated text streaming — accumulate by response_id
         case 'response.output_audio_transcript.delta': {
@@ -942,6 +1016,13 @@ function handleRealtimeEvent(e) {
                 realtimeTurns[rid].output += (event.delta || '');
                 interimText.textContent = realtimeTurns[rid].output;
                 mirrorInterimEl.textContent = realtimeTurns[rid].output;
+
+                // Language-aware TTS mute once we have enough text to detect
+                if (realtimeAudioEl && realtimeTurns[rid].output.length >= 3) {
+                    const outLang = detectLang(realtimeTurns[rid].output);
+                    const shouldMute = (outLang === 'ja' && !ttsJaEnabled) || (outLang === 'ko' && !ttsKoEnabled);
+                    realtimeAudioEl.muted = shouldMute;
+                }
             }
             break;
         }
@@ -976,24 +1057,33 @@ function handleRealtimeEvent(e) {
 
                 scrollToBottom();
 
-                // Only fetch back-translation if we don't have the original transcript
-                if (!original) {
-                    const reverseDir = outputLang === 'ja' ? 'ja2ko' : 'ko2ja';
-                    fetch('/api/translate', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ text: translated, direction: reverseDir, context: [] }),
-                    }).then(r => r.json()).then(data => {
-                        if (data.translated) {
-                            const update = (el) => {
+                // Always fetch back-translation for verification
+                const reverseDir = outputLang === 'ja' ? 'ja2ko' : 'ko2ja';
+                fetch('/api/translate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text: translated, direction: reverseDir, context: [] }),
+                }).then(r => r.json()).then(data => {
+                    if (data.translated) {
+                        const update = (el) => {
+                            // If no original text, fill it in
+                            if (!original) {
                                 const origEl = el.querySelector('.original-text');
                                 if (origEl) origEl.textContent = data.translated;
-                            };
-                            update(msgEl);
-                            update(mirrorEl);
-                        }
-                    }).catch(() => {});
-                }
+                            }
+                            // Add back-translation
+                            if (!el.querySelector('.back-translation')) {
+                                const btEl = document.createElement('div');
+                                btEl.className = 'back-translation';
+                                btEl.textContent = `(${data.translated})`;
+                                const afterEl = el.querySelector('.translated-text');
+                                if (afterEl) afterEl.after(btEl);
+                            }
+                        };
+                        update(msgEl);
+                        update(mirrorEl);
+                    }
+                }).catch(() => {});
             }
 
             // Cleanup this turn

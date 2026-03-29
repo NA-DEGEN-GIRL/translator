@@ -47,10 +47,12 @@
 
             <footer class="controls">
                 <div class="settings-row">
+                    <button class="toggle-chip" id="clearBtn" title="대화 내용 삭제">CLR</button>
                     <label class="silence-setting" title="모드">
-                        <select id="sttMode">
-                            <option value="normal" selected>일반(Browser)</option>
-                            <option value="openai">일반(OpenAI)</option>
+                        <select id="pipelineMode">
+                            <option value="browser" selected>브라우저</option>
+                            <option value="local">로컬</option>
+                            <option value="openai">OpenAI</option>
                             <option value="realtime">Realtime</option>
                         </select>
                     </label>
@@ -82,7 +84,7 @@
                             <option value="32">32</option>
                         </select>
                     </label>
-                    <label class="silence-setting normal-mode-only" title="묵음 자동 정지 시간">
+                    <label class="silence-setting normal-mode-only browser-only" title="묵음 자동 정지 시간">
                         <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"/></svg>
                         <select id="silenceTimeout">
                             <option value="auto" selected>auto</option>

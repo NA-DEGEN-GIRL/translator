@@ -1,0 +1,14 @@
+# Local mode dependencies (GPU required)
+# Install: pip install -r requirements-local.txt
+torch>=2.0
+transformers==4.57.3
+accelerate
+huggingface_hub
+soundfile
+kokoro>=0.9
+pyopenjtalk
+fugashi
+unidic-lite
+jaconv
+mojimoji
+qwen-omni-utils

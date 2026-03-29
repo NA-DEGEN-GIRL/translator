@@ -485,8 +485,14 @@ body {
     word-break: break-all;
 }
 
-/* Realtime mode */
-.app.realtime-active .normal-mode-only {
+/* Mode-specific visibility */
+.app.realtime-active .normal-mode-only,
+.app.realtime-active .browser-only {
+    display: none !important;
+}
+
+.app.mode-openai .browser-only,
+.app.mode-local .browser-only {
     display: none !important;
 }
 
