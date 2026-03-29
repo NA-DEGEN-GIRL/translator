@@ -53,6 +53,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
   double _ttsSpeed = 1.0;
   int _pauseSeconds = 3;
   double _vadThreshold = 0.9;
+  String _realtimeModel = 'gpt-realtime-mini';
 
   @override
   void initState() {
@@ -87,6 +88,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
       _model = prefs.getString('model') ?? 'gpt-5.4-nano';
       _ttsSpeed = prefs.getDouble('ttsSpeed') ?? 1.0;
       _pauseSeconds = prefs.getInt('pauseSeconds') ?? 3;
+      _realtimeModel = prefs.getString('realtimeModel') ?? 'gpt-realtime-mini';
     });
   }
 
@@ -101,6 +103,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     prefs.setString('model', _model);
     prefs.setDouble('ttsSpeed', _ttsSpeed);
     prefs.setInt('pauseSeconds', _pauseSeconds);
+    prefs.setString('realtimeModel', _realtimeModel);
   }
 
   String _detectLang(String text) {
@@ -417,7 +420,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
 
     _realtime = RealtimeService(
       apiKey: widget.apiKey,
-      model: 'gpt-realtime-mini',
+      model: _realtimeModel,
       voice: _voiceJa == 'onyx' ? 'ash' : 'coral',
       onEvent: _handleRealtimeEvent,
     );
@@ -582,11 +585,18 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
             items: {'browser': '브라우저', 'openai': 'OpenAI', 'realtime': 'RT'},
             onChanged: (v) => setState(() { _mode = v!; _saveSettings(); }),
           )),
-          _labeledSetting('모델', _buildDropdown<String>(
-            value: _model,
-            items: {'gpt-4.1-nano': '4.1n', 'gpt-4.1-mini': '4.1m', 'gpt-5.4-nano': '5.4n', 'gpt-5.4-mini': '5.4m', 'gpt-5.4': '5.4'},
-            onChanged: (v) => setState(() { _model = v!; _saveSettings(); }),
-          )),
+          if (_mode == 'realtime')
+            _labeledSetting('모델', _buildDropdown<String>(
+              value: _realtimeModel,
+              items: {'gpt-realtime-mini': 'mini', 'gpt-realtime': 'std', 'gpt-realtime-1.5': '1.5'},
+              onChanged: (v) => setState(() { _realtimeModel = v!; _saveSettings(); }),
+            ))
+          else
+            _labeledSetting('모델', _buildDropdown<String>(
+              value: _model,
+              items: {'gpt-4.1-nano': '4.1n', 'gpt-4.1-mini': '4.1m', 'gpt-5.4-nano': '5.4n', 'gpt-5.4-mini': '5.4m', 'gpt-5.4': '5.4'},
+              onChanged: (v) => setState(() { _model = v!; _saveSettings(); }),
+            )),
           _labeledSetting('JA', _buildToggle('', _ttsJaEnabled, () {
             setState(() => _ttsJaEnabled = !_ttsJaEnabled); _saveSettings();
           })),
