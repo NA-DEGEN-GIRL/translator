@@ -1,7 +1,6 @@
-import 'dart:js_interop';
+import 'package:flutter/foundation.dart' show kIsWeb, debugPrint;
 import 'package:speech_to_text/speech_to_text.dart';
 import 'package:flutter_tts/flutter_tts.dart';
-import 'package:web/web.dart' as web;
 
 class SpeechService {
   final SpeechToText _stt = SpeechToText();
@@ -82,7 +81,7 @@ class SpeechService {
   bool get isListening => _stt.isListening;
 
   void _log(String msg) {
-    web.console.log('[TTS] $msg'.toJS);
+    debugPrint('[TTS] $msg');
   }
 
   Future<void> speak(String text, String lang, {double rate = 1.0, String gender = 'female'}) async {
