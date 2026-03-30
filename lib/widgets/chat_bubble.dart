@@ -43,22 +43,32 @@ class ChatBubble extends StatelessWidget {
         ? const Color(0xFFEBF4FF)
         : const Color(0xFFFFF0F3);
 
+    final alignment = isFromSource
+        ? CrossAxisAlignment.end    // 내가 말한 거 → 오른쪽
+        : CrossAxisAlignment.start; // 상대가 말한 거 → 왼쪽
+
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      constraints: BoxConstraints(
+        maxWidth: MediaQuery.of(context).size.width * 0.82,
+      ),
+      child: Align(
+        alignment: isFromSource ? Alignment.centerRight : Alignment.centerLeft,
+        child: Column(
+        crossAxisAlignment: alignment,
         children: [
           // === Original text (small, muted) ===
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             decoration: BoxDecoration(
               color: accentColor.withOpacity(0.12),
-              borderRadius: const BorderRadius.only(
-                topLeft: Radius.circular(2),
-                topRight: Radius.circular(10),
+              borderRadius: BorderRadius.only(
+                topLeft: Radius.circular(isFromSource ? 10 : 2),
+                topRight: Radius.circular(isFromSource ? 2 : 10),
               ),
               border: Border(
-                left: BorderSide(color: accentColor, width: 4),
+                left: isFromSource ? BorderSide.none : BorderSide(color: accentColor, width: 4),
+                right: isFromSource ? BorderSide(color: accentColor, width: 4) : BorderSide.none,
               ),
             ),
             child: Row(
@@ -94,7 +104,8 @@ class ChatBubble extends StatelessWidget {
             decoration: BoxDecoration(
               color: accentColor.withOpacity(0.12),
               border: Border(
-                left: BorderSide(color: accentColor, width: 4),
+                left: isFromSource ? BorderSide.none : BorderSide(color: accentColor, width: 4),
+                right: isFromSource ? BorderSide(color: accentColor, width: 4) : BorderSide.none,
               ),
             ),
             child: SelectableText(
@@ -111,12 +122,13 @@ class ChatBubble extends StatelessWidget {
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
               color: cardColor,
-              borderRadius: const BorderRadius.only(
-                bottomLeft: Radius.circular(10),
-                bottomRight: Radius.circular(10),
+              borderRadius: BorderRadius.only(
+                bottomLeft: Radius.circular(isFromSource ? 10 : 2),
+                bottomRight: Radius.circular(isFromSource ? 2 : 10),
               ),
               border: Border(
-                left: BorderSide(color: accentColor.withOpacity(0.3), width: 4),
+                left: isFromSource ? BorderSide.none : BorderSide(color: accentColor.withOpacity(0.3), width: 4),
+                right: isFromSource ? BorderSide(color: accentColor.withOpacity(0.3), width: 4) : BorderSide.none,
               ),
             ),
             child: Column(
@@ -145,7 +157,7 @@ class ChatBubble extends StatelessWidget {
             ),
           ),
         ],
-      ),
+      )),
     );
   }
 }
