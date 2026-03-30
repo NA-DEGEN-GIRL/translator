@@ -35,88 +35,88 @@ class ChatBubble extends StatelessWidget {
     final toLang = parts.length > 1 ? parts[1] : '';
     final label = '${fromLang.toUpperCase()}→${toLang.toUpperCase()}';
 
-    // Color: source language = blue, target language = red
     final isFromSource = fromLang == sourceLang;
     final accentColor = isFromSource
         ? const Color(0xFF4A90D9)
         : const Color(0xFFE85D75);
+    final cardColor = isFromSource
+        ? const Color(0xFFEBF4FF)
+        : const Color(0xFFFFF0F3);
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
+      margin: const EdgeInsets.only(bottom: 10),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // === Source bubble (colored) ===
+          // === Original text (small, muted) ===
           Container(
-            padding: const EdgeInsets.all(12),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             decoration: BoxDecoration(
-              color: accentColor,
+              color: accentColor.withOpacity(0.12),
               borderRadius: const BorderRadius.only(
                 topLeft: Radius.circular(2),
-                topRight: Radius.circular(12),
-                bottomRight: Radius.circular(12),
-                bottomLeft: Radius.circular(2),
+                topRight: Radius.circular(10),
               ),
               border: Border(
                 left: BorderSide(color: accentColor, width: 4),
               ),
             ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            child: Row(
               children: [
-                // Direction label + replay
-                Row(
-                  children: [
-                    Text(
-                      label,
-                      style: TextStyle(
-                        fontSize: fontSize * 0.5,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.white70,
-                        letterSpacing: 0.8,
-                      ),
-                    ),
-                    const Spacer(),
-                    if (onReplay != null)
-                      GestureDetector(
-                        onTap: onReplay,
-                        child: Container(
-                          padding: const EdgeInsets.all(4),
-                          decoration: BoxDecoration(
-                            color: Colors.white24,
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: const Icon(Icons.volume_up, size: 14, color: Colors.white),
-                        ),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 4),
-                // Original text
-                SelectableText(
-                  message.original,
+                Text(
+                  label,
                   style: TextStyle(
-                    fontSize: fontSize * 0.85,
-                    fontWeight: FontWeight.w500,
-                    color: Colors.white,
+                    fontSize: fontSize * 0.45,
+                    fontWeight: FontWeight.w700,
+                    color: accentColor.withOpacity(0.6),
+                    letterSpacing: 0.8,
                   ),
                 ),
+                const Spacer(),
+                if (onReplay != null)
+                  GestureDetector(
+                    onTap: onReplay,
+                    child: Container(
+                      padding: const EdgeInsets.all(3),
+                      decoration: BoxDecoration(
+                        color: accentColor.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Icon(Icons.volume_up, size: 13, color: accentColor),
+                    ),
+                  ),
               ],
             ),
           ),
+          // Original text
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+            decoration: BoxDecoration(
+              color: accentColor.withOpacity(0.12),
+              border: Border(
+                left: BorderSide(color: accentColor, width: 4),
+              ),
+            ),
+            child: SelectableText(
+              message.original,
+              style: TextStyle(
+                fontSize: fontSize * 0.7,
+                color: accentColor.withOpacity(0.7),
+              ),
+            ),
+          ),
 
-          const SizedBox(height: 2),
-
-          // === Translated card (gray) ===
+          // === Translation (large, prominent) ===
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: const Color(0xFFF0F4F8),
+              color: cardColor,
               borderRadius: const BorderRadius.only(
-                topLeft: Radius.circular(0),
-                topRight: Radius.circular(8),
-                bottomRight: Radius.circular(8),
-                bottomLeft: Radius.circular(8),
+                bottomLeft: Radius.circular(10),
+                bottomRight: Radius.circular(10),
+              ),
+              border: Border(
+                left: BorderSide(color: accentColor.withOpacity(0.3), width: 4),
               ),
             ),
             child: Column(
@@ -126,8 +126,8 @@ class ChatBubble extends StatelessWidget {
                   message.translated,
                   style: TextStyle(
                     fontSize: fontSize,
-                    fontWeight: FontWeight.w400,
-                    color: const Color(0xFF2D3748),
+                    fontWeight: FontWeight.w500,
+                    color: const Color(0xFF1A202C),
                   ),
                 ),
                 if (message.backTranslation != null) ...[
@@ -135,7 +135,7 @@ class ChatBubble extends StatelessWidget {
                   SelectableText(
                     '(${message.backTranslation})',
                     style: TextStyle(
-                      fontSize: fontSize * 0.7,
+                      fontSize: fontSize * 0.65,
                       fontStyle: FontStyle.italic,
                       color: const Color(0xFF718096),
                     ),
