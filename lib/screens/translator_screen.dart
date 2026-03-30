@@ -930,10 +930,11 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
       body: SafeArea(
         child: Column(
           children: [
-            // === Mirror half (rotated) ===
+            // === Mirror half (only in face-to-face mode) ===
+            if (_displayMode == 'face')
             Expanded(
               child: Transform.rotate(
-                angle: _displayMode == 'face' ? 3.14159 : 0,
+                angle: 3.14159,
                 child: Column(
                   children: [
                     // Label
@@ -1001,7 +1002,8 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
                 ),
               ),
             ),
-            // === Divider ===
+            // === Divider (face-to-face only) ===
+            if (_displayMode == 'face')
             Container(
               height: 3,
               decoration: const BoxDecoration(
