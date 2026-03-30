@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:http/http.dart' as http;
@@ -20,6 +21,7 @@ class RealtimeService {
   MediaStream? _remoteStream;
   RTCVideoRenderer? _remoteRenderer;
   bool _active = false;
+  Timer? _unmuteWatchdog;
 
   // Turn tracking
   final Map<String, RealtimeTurn> turns = {};
@@ -194,9 +196,8 @@ Examples:
         break;
 
       case 'output_audio_buffer.stopped':
-        Future.delayed(const Duration(milliseconds: 800), () {
-          if (_active) muteMic(false);
-        });
+      case 'output_audio_buffer.cleared':
+        _safeUnmute();
         break;
 
       case 'response.done':
@@ -204,6 +205,11 @@ Examples:
         if (rid != null) {
           currentResponseId = null;
           lastUserTranscript = '';
+        }
+        // Unmute on cancelled/failed/incomplete
+        final status = event['response']?['status'] as String?;
+        if (status != null && status != 'completed') {
+          _safeUnmute();
         }
         break;
 
@@ -213,6 +219,7 @@ Examples:
             errMsg.toString().contains('unknown_parameter')) {
           return; // ignore non-critical
         }
+        _safeUnmute(); // ensure mic is restored on error
         break;
     }
 
@@ -221,6 +228,34 @@ Examples:
 
   void muteMic(bool mute) {
     _localTrack?.enabled = !mute;
+    if (mute) {
+      _startUnmuteWatchdog();
+    } else {
+      _cancelUnmuteWatchdog();
+    }
+  }
+
+  void _startUnmuteWatchdog() {
+    _cancelUnmuteWatchdog();
+    _unmuteWatchdog = Timer(const Duration(seconds: 5), () {
+      // Failsafe: if no unmute event came in 5 seconds, force unmute
+      if (_active) {
+        _localTrack?.enabled = true;
+        onEvent('watchdog_unmute', {});
+      }
+    });
+  }
+
+  void _cancelUnmuteWatchdog() {
+    _unmuteWatchdog?.cancel();
+    _unmuteWatchdog = null;
+  }
+
+  void _safeUnmute() {
+    _cancelUnmuteWatchdog();
+    Future.delayed(const Duration(milliseconds: 500), () {
+      if (_active) _localTrack?.enabled = true;
+    });
   }
 
   void muteAudio(bool mute) {
@@ -248,6 +283,7 @@ Examples:
 
   Future<void> stop() async {
     _active = false;
+    _cancelUnmuteWatchdog();
     _dc?.close();
     _dc = null;
     _localStream?.getTracks().forEach((t) => t.stop());
