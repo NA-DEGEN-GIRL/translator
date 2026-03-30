@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 
 class ChatMessage {
   final String original;
@@ -208,12 +209,15 @@ class ChatBubble extends StatelessWidget {
                     ],
                   ),
                   const SizedBox(height: 4),
-                  SelectableText(
-                    message.translated,
-                    style: TextStyle(
-                      fontSize: fontSize * 0.85,
-                      color: const Color(0xFF1A202C),
-                      height: 1.4,
+                  MarkdownBody(
+                    data: message.translated,
+                    selectable: true,
+                    styleSheet: MarkdownStyleSheet(
+                      p: TextStyle(fontSize: fontSize * 0.85, color: const Color(0xFF1A202C), height: 1.4),
+                      strong: TextStyle(fontSize: fontSize * 0.85, fontWeight: FontWeight.bold, color: const Color(0xFF1A202C)),
+                      listBullet: TextStyle(fontSize: fontSize * 0.85, color: const Color(0xFF1A202C)),
+                      code: TextStyle(fontSize: fontSize * 0.75, backgroundColor: Colors.grey.shade200),
+                      blockSpacing: 8,
                     ),
                   ),
                 ],
