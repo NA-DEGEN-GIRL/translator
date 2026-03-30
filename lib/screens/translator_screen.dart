@@ -953,23 +953,10 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
   }) {
     return GestureDetector(
       onTap: onTap,
-      child: Container(
-        width: 40,
-        height: 36,
-        decoration: BoxDecoration(
-          color: isActive ? Colors.red : color,
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.mic, size: 16, color: Colors.white),
-            Text(
-              langCode.toUpperCase(),
-              style: const TextStyle(fontSize: 8, fontWeight: FontWeight.bold, color: Colors.white),
-            ),
-          ],
-        ),
+      child: _PulsatingMic(
+        isActive: isActive,
+        color: color,
+        langCode: langCode,
       ),
     );
   }
@@ -1159,6 +1146,92 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _PulsatingMic extends StatefulWidget {
+  final bool isActive;
+  final Color color;
+  final String langCode;
+
+  const _PulsatingMic({
+    required this.isActive,
+    required this.color,
+    required this.langCode,
+  });
+
+  @override
+  State<_PulsatingMic> createState() => _PulsatingMicState();
+}
+
+class _PulsatingMicState extends State<_PulsatingMic> with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _scaleAnim;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 800),
+    );
+    _scaleAnim = Tween<double>(begin: 1.0, end: 1.25).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
+    );
+  }
+
+  @override
+  void didUpdateWidget(_PulsatingMic old) {
+    super.didUpdateWidget(old);
+    if (widget.isActive && !_controller.isAnimating) {
+      _controller.repeat(reverse: true);
+    } else if (!widget.isActive && _controller.isAnimating) {
+      _controller.stop();
+      _controller.reset();
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, child) {
+        return Transform.scale(
+          scale: widget.isActive ? _scaleAnim.value : 1.0,
+          child: Container(
+            width: 40,
+            height: 36,
+            decoration: BoxDecoration(
+              color: widget.isActive ? Colors.red : widget.color,
+              borderRadius: BorderRadius.circular(8),
+              boxShadow: widget.isActive ? [
+                BoxShadow(
+                  color: Colors.red.withOpacity(0.4 * (1.25 - _scaleAnim.value)),
+                  blurRadius: 12,
+                  spreadRadius: 2,
+                ),
+              ] : null,
+            ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.mic, size: 16, color: Colors.white),
+                Text(
+                  widget.langCode.toUpperCase(),
+                  style: const TextStyle(fontSize: 8, fontWeight: FontWeight.bold, color: Colors.white),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }

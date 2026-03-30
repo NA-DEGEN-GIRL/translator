@@ -45,10 +45,12 @@ class ChatBubble extends StatelessWidget {
 
     return Align(
       alignment: isFromSource ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
+      child: IntrinsicWidth(
+        child: Container(
         margin: const EdgeInsets.only(bottom: 10),
         constraints: BoxConstraints(
           maxWidth: MediaQuery.of(context).size.width * 0.8,
+          minWidth: 100,
         ),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.only(
@@ -141,7 +143,7 @@ class ChatBubble extends StatelessWidget {
             ),
           ],
         ),
-      ),
+      )),
     );
   }
 }
