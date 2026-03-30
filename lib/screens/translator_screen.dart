@@ -47,6 +47,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
 
   // Settings
   String _textDirection = 'source2target'; // for text input
+  bool _aiMode = false; // AI assistant mode (separate from translation)
   String _mode = 'browser'; // browser, openai, realtime
   String _model = 'gpt-5.4-nano';
   String _sourceLang = 'ko';
@@ -331,7 +332,11 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
         setState(() => _interimText = text);
         if (isFinal && text.isNotEmpty) {
           _stopListening();
-          _handleTranslation(text, forceDirection: direction);
+          if (_aiMode) {
+            _handleAIQuestion(text);
+          } else {
+            _handleTranslation(text, forceDirection: direction);
+          }
         }
       },
       onDone: () { if (mounted) setState(() => _isListening = false); },
@@ -447,7 +452,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     if (text.isEmpty || _isProcessing) return;
     await _speech.warmupTts();
     _textController.clear();
-    if (_textDirection == 'ai') {
+    if (_aiMode) {
       _handleAIQuestion(text);
     } else if (_mode == 'realtime' && _realtimeActive) {
       _realtime?.sendText(text);
@@ -605,7 +610,11 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
       setState(() => _interimText = '');
 
       if (text.isNotEmpty) {
-        _handleTranslation(text, forceDirection: forceDirection);
+        if (_aiMode) {
+          _handleAIQuestion(text);
+        } else {
+          _handleTranslation(text, forceDirection: forceDirection);
+        }
       }
     } catch (e) {
       setState(() => _interimText = '');
@@ -907,34 +916,50 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
             outlined: true,
           ),
           const SizedBox(width: 4),
-          // Direction toggle: source→target / target→source / AI
+          // Direction toggle: source→target / target→source
+          if (!_aiMode)
+            GestureDetector(
+              onTap: () => setState(() {
+                _textDirection = _textDirection == 'source2target' ? 'target2source' : 'source2target';
+              }),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+                decoration: BoxDecoration(
+                  color: _textDirection == 'source2target'
+                      ? const Color(0xFF4A90D9)
+                      : const Color(0xFFE85D75),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  _textDirection == 'source2target'
+                      ? '${_sourceLang.toUpperCase()}→${_targetLang.toUpperCase()}'
+                      : '${_targetLang.toUpperCase()}→${_sourceLang.toUpperCase()}',
+                  style: const TextStyle(fontSize: 8, fontWeight: FontWeight.bold, color: Colors.white),
+                ),
+              ),
+            ),
+          // AI toggle
           GestureDetector(
-            onTap: () => setState(() {
-              if (_textDirection == 'source2target') {
-                _textDirection = 'target2source';
-              } else if (_textDirection == 'target2source') {
-                _textDirection = 'ai';
-              } else {
-                _textDirection = 'source2target';
+            onTap: () {
+              if (_mode == 'realtime' && _realtimeActive) {
+                _showError('Realtime 중에는 AI 모드를 사용할 수 없습니다');
+                return;
               }
-            }),
+              setState(() => _aiMode = !_aiMode);
+            },
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 6),
               decoration: BoxDecoration(
-                color: _textDirection == 'source2target'
-                    ? const Color(0xFF4A90D9)
-                    : _textDirection == 'target2source'
-                        ? const Color(0xFFE85D75)
-                        : const Color(0xFF8B5CF6),
+                color: _aiMode ? const Color(0xFF8B5CF6) : Colors.grey.shade400,
                 borderRadius: BorderRadius.circular(6),
               ),
-              child: Text(
-                _textDirection == 'source2target'
-                    ? '${_sourceLang.toUpperCase()}→${_targetLang.toUpperCase()}'
-                    : _textDirection == 'target2source'
-                        ? '${_targetLang.toUpperCase()}→${_sourceLang.toUpperCase()}'
-                        : 'AI',
-                style: const TextStyle(fontSize: 8, fontWeight: FontWeight.bold, color: Colors.white),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.smart_toy, size: 10, color: Colors.white),
+                  const SizedBox(width: 2),
+                  Text('AI', style: const TextStyle(fontSize: 8, fontWeight: FontWeight.bold, color: Colors.white)),
+                ],
               ),
             ),
           ),
@@ -976,10 +1001,10 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
               onTap: () => _realtimeActive ? _stopRealtime() : _startRealtime(),
             ),
           ] else ...[
-            // Source language mic
+            // Source language mic (purple when AI mode)
             _buildLangMicButton(
-              langCode: _sourceLang,
-              color: const Color(0xFF4A90D9),
+              langCode: _aiMode ? 'AI' : _sourceLang,
+              color: _aiMode ? const Color(0xFF8B5CF6) : const Color(0xFF4A90D9),
               isActive: (_isListening || _isRecording) && _micLang == _sourceLang,
               onTap: () => _handleMicTap(_sourceLang, 'source2target'),
             ),
