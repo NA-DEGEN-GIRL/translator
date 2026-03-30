@@ -43,121 +43,105 @@ class ChatBubble extends StatelessWidget {
         ? const Color(0xFFEBF4FF)
         : const Color(0xFFFFF0F3);
 
-    final alignment = isFromSource
-        ? CrossAxisAlignment.end    // 내가 말한 거 → 오른쪽
-        : CrossAxisAlignment.start; // 상대가 말한 거 → 왼쪽
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      constraints: BoxConstraints(
-        maxWidth: MediaQuery.of(context).size.width * 0.82,
-      ),
-      child: Align(
-        alignment: isFromSource ? Alignment.centerRight : Alignment.centerLeft,
+    return Align(
+      alignment: isFromSource ? Alignment.centerRight : Alignment.centerLeft,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        constraints: BoxConstraints(
+          maxWidth: MediaQuery.of(context).size.width * 0.8,
+        ),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.only(
+            topLeft: Radius.circular(isFromSource ? 12 : 2),
+            topRight: Radius.circular(isFromSource ? 2 : 12),
+            bottomLeft: const Radius.circular(12),
+            bottomRight: const Radius.circular(12),
+          ),
+          border: Border.all(color: accentColor.withOpacity(0.2), width: 1),
+        ),
+        clipBehavior: Clip.antiAlias,
         child: Column(
-        crossAxisAlignment: alignment,
-        children: [
-          // === Original text (small, muted) ===
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            decoration: BoxDecoration(
-              color: accentColor.withOpacity(0.12),
-              borderRadius: BorderRadius.only(
-                topLeft: Radius.circular(isFromSource ? 10 : 2),
-                topRight: Radius.circular(isFromSource ? 2 : 10),
-              ),
-              border: Border(
-                left: isFromSource ? BorderSide.none : BorderSide(color: accentColor, width: 4),
-                right: isFromSource ? BorderSide(color: accentColor, width: 4) : BorderSide.none,
-              ),
-            ),
-            child: Row(
-              children: [
-                Text(
-                  label,
-                  style: TextStyle(
-                    fontSize: fontSize * 0.45,
-                    fontWeight: FontWeight.w700,
-                    color: accentColor.withOpacity(0.6),
-                    letterSpacing: 0.8,
-                  ),
-                ),
-                const Spacer(),
-                if (onReplay != null)
-                  GestureDetector(
-                    onTap: onReplay,
-                    child: Container(
-                      padding: const EdgeInsets.all(3),
-                      decoration: BoxDecoration(
-                        color: accentColor.withOpacity(0.15),
-                        borderRadius: BorderRadius.circular(4),
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // === Header: label + original (small) ===
+            Container(
+              padding: const EdgeInsets.fromLTRB(10, 6, 10, 6),
+              color: accentColor.withOpacity(0.1),
+              child: Column(
+                crossAxisAlignment: isFromSource
+                    ? CrossAxisAlignment.end
+                    : CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        label,
+                        style: TextStyle(
+                          fontSize: fontSize * 0.45,
+                          fontWeight: FontWeight.w700,
+                          color: accentColor.withOpacity(0.6),
+                          letterSpacing: 0.8,
+                        ),
                       ),
-                      child: Icon(Icons.volume_up, size: 13, color: accentColor),
-                    ),
+                      if (onReplay != null) ...[
+                        const SizedBox(width: 6),
+                        GestureDetector(
+                          onTap: onReplay,
+                          child: Icon(Icons.volume_up, size: 13, color: accentColor.withOpacity(0.5)),
+                        ),
+                      ],
+                    ],
                   ),
-              ],
-            ),
-          ),
-          // Original text
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-            decoration: BoxDecoration(
-              color: accentColor.withOpacity(0.12),
-              border: Border(
-                left: isFromSource ? BorderSide.none : BorderSide(color: accentColor, width: 4),
-                right: isFromSource ? BorderSide(color: accentColor, width: 4) : BorderSide.none,
-              ),
-            ),
-            child: SelectableText(
-              message.original,
-              style: TextStyle(
-                fontSize: fontSize * 0.7,
-                color: accentColor.withOpacity(0.7),
-              ),
-            ),
-          ),
-
-          // === Translation (large, prominent) ===
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: cardColor,
-              borderRadius: BorderRadius.only(
-                bottomLeft: Radius.circular(isFromSource ? 10 : 2),
-                bottomRight: Radius.circular(isFromSource ? 2 : 10),
-              ),
-              border: Border(
-                left: isFromSource ? BorderSide.none : BorderSide(color: accentColor.withOpacity(0.3), width: 4),
-                right: isFromSource ? BorderSide(color: accentColor.withOpacity(0.3), width: 4) : BorderSide.none,
-              ),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                SelectableText(
-                  message.translated,
-                  style: TextStyle(
-                    fontSize: fontSize,
-                    fontWeight: FontWeight.w500,
-                    color: const Color(0xFF1A202C),
-                  ),
-                ),
-                if (message.backTranslation != null) ...[
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 2),
                   SelectableText(
-                    '(${message.backTranslation})',
+                    message.original,
                     style: TextStyle(
-                      fontSize: fontSize * 0.65,
-                      fontStyle: FontStyle.italic,
-                      color: const Color(0xFF718096),
+                      fontSize: fontSize * 0.7,
+                      color: accentColor.withOpacity(0.65),
                     ),
+                    textAlign: isFromSource ? TextAlign.right : TextAlign.left,
                   ),
                 ],
-              ],
+              ),
             ),
-          ),
-        ],
-      )),
+
+            // === Translation (large) ===
+            Container(
+              padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+              color: cardColor,
+              child: Column(
+                crossAxisAlignment: isFromSource
+                    ? CrossAxisAlignment.end
+                    : CrossAxisAlignment.start,
+                children: [
+                  SelectableText(
+                    message.translated,
+                    style: TextStyle(
+                      fontSize: fontSize,
+                      fontWeight: FontWeight.w500,
+                      color: const Color(0xFF1A202C),
+                    ),
+                    textAlign: isFromSource ? TextAlign.right : TextAlign.left,
+                  ),
+                  if (message.backTranslation != null) ...[
+                    const SizedBox(height: 3),
+                    SelectableText(
+                      '(${message.backTranslation})',
+                      style: TextStyle(
+                        fontSize: fontSize * 0.6,
+                        fontStyle: FontStyle.italic,
+                        color: const Color(0xFF718096),
+                      ),
+                      textAlign: isFromSource ? TextAlign.right : TextAlign.left,
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
