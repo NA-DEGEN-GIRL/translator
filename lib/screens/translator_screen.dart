@@ -384,7 +384,8 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
       );
 
       // Silence detection for mirror mic
-      if (_pauseSeconds < 30) {
+      final mirrorPause = _aiMode ? _aiPauseSeconds : _pauseSeconds;
+      if (mirrorPause < 30) {
         _ampSub = _recorder.onAmplitudeChanged(const Duration(milliseconds: 200)).listen((amp) {
           if (amp.current < _noiseThreshold) {
             final timeout = _aiMode ? _aiPauseSeconds : _pauseSeconds;
@@ -572,11 +573,11 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     );
 
     // Silence detection
-    if (_pauseSeconds < 30) { // 30 = OFF
+    final effectivePause = _aiMode ? _aiPauseSeconds : _pauseSeconds;
+    if (effectivePause < 30) { // 30 = OFF
       _ampSub = _recorder.onAmplitudeChanged(const Duration(milliseconds: 200)).listen((amp) {
         if (amp.current < _noiseThreshold) {
-          // Silence — start timer if not started
-          _silenceTimer ??= Timer(Duration(seconds: _pauseSeconds), () {
+          _silenceTimer ??= Timer(Duration(seconds: effectivePause), () {
             if (_isRecording) _stopOpenAIRecording(forceDirection: forceDirection);
           });
         } else {
