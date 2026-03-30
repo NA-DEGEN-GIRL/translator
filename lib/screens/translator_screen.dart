@@ -76,12 +76,18 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
   }
 
   @override
+  @override
   void dispose() {
+    _ampSub?.cancel();
+    _silenceTimer?.cancel();
+    _speech.stopListening();
+    _speech.stopSpeaking();
     _realtime?.stop();
     _recorder.dispose();
     _textController.dispose();
     _myScrollController.dispose();
     _mirrorScrollController.dispose();
+    _audioPlayer.stop();
     _audioPlayer.dispose();
     super.dispose();
   }
@@ -150,7 +156,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
         voiceTarget: _voiceTarget,
         fontSize: _fontSize,
         ttsSpeed: _ttsSpeed,
-        pauseSeconds: _pauseSeconds,
+        pauseSeconds: _aiMode ? _aiPauseSeconds : _pauseSeconds,
         noiseThreshold: _noiseThreshold,
         vadThreshold: _vadThreshold,
         aiModel: _aiModel,
@@ -308,7 +314,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
       await _audioPlayer.play(BytesSource(audioBytes));
     } catch (e) {
       // Fallback to browser TTS
-      final g = (lang == 'ja' ? _voiceTarget : _voiceSource) == 'nova' || (lang == 'ja' ? _voiceTarget : _voiceSource) == 'coral' ? 'female' : 'male';
+      final g = (lang == _targetLang ? _voiceTarget : _voiceSource) == 'nova' || (lang == _targetLang ? _voiceTarget : _voiceSource) == 'coral' ? 'female' : 'male';
       await _speech.speak(text, lang, gender: g);
     }
   }
@@ -406,13 +412,13 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
         _mirrorInterimText = '';
       });
       await _speech.startListening(
-        locale: 'ja_JP',
-        pauseSeconds: _pauseSeconds,
+        locale: getLangByCode(_targetLang).sttLocale,
+        pauseSeconds: _aiMode ? _aiPauseSeconds : _pauseSeconds,
         onResult: (text, isFinal) {
           setState(() => _mirrorInterimText = text);
           if (isFinal && text.isNotEmpty) {
             _stopMirrorListening();
-            _handleTranslation(text, forceDirection: 'ja2ko');
+            _handleTranslation(text, forceDirection: 'target2source');
           }
         },
         onDone: () => setState(() => _isMirrorListening = false),
@@ -435,10 +441,10 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
         try {
           final bytes = await _readFileBytes(path);
           if (bytes.isNotEmpty && bytes.length >= 1000) {
-            final text = await _openai.stt(bytes, 'ja');
+            final text = await _openai.stt(bytes, _targetLang);
             setState(() => _mirrorInterimText = '');
             if (text.isNotEmpty) {
-              _handleTranslation(text, forceDirection: 'ja2ko');
+              _handleTranslation(text, forceDirection: 'target2source');
             }
           } else {
             setState(() => _mirrorInterimText = '');
@@ -658,18 +664,6 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
   }
 
   // ===== Realtime =====
-  String? _detectLangSimple(String text) {
-    final scores = <String, int>{};
-    for (final ch in text.runes) {
-      if ((ch >= 0xAC00 && ch <= 0xD7AF)) scores['ko'] = (scores['ko'] ?? 0) + 1;
-      if ((ch >= 0x3040 && ch <= 0x309F) || (ch >= 0x30A0 && ch <= 0x30FF)) scores['ja'] = (scores['ja'] ?? 0) + 1;
-      if (ch >= 0x4E00 && ch <= 0x9FFF) scores['zh'] = (scores['zh'] ?? 0) + 1;
-      if (ch >= 0x0400 && ch <= 0x04FF) scores['ru'] = (scores['ru'] ?? 0) + 1;
-    }
-    if (scores.isEmpty) return null;
-    return scores.entries.reduce((a, b) => a.value > b.value ? a : b).key;
-  }
-
   Future<void> _startRealtime() async {
     if (_realtimeActive) return;
     setState(() => _interimText = 'Realtime 연결 중...');
@@ -716,6 +710,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
   }
 
   void _handleRealtimeEvent(String type, Map<String, dynamic> event) {
+    if (!mounted || !_realtimeActive || _realtime == null) return;
     switch (type) {
       case 'input_audio_buffer.speech_started':
         setState(() {
@@ -747,7 +742,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
         if (turn != null && turn.output.isNotEmpty) {
           // Realtime: output = AI's translated speech transcript
           // Detect output language to determine direction
-          final outputLang = _detectLangSimple(turn.output);
+          final outputLang = _detectLang(turn.output);
           final didTranslate = outputLang != null && outputLang != _sourceLang;
           final direction = didTranslate
               ? '${_sourceLang}2${_targetLang}'
@@ -817,13 +812,13 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
   }
 
   Future<void> _replayMessage(ChatMessage msg) async {
-    final lang = msg.direction == 'ko2ja' ? 'ja' : 'ko';
+    final lang = msg.direction.split('2').length > 1 ? msg.direction.split('2')[1] : _targetLang;
     if (_mode == 'browser') {
-      final gr = (lang == 'ja' ? _voiceTarget : _voiceSource) == 'nova' || (lang == 'ja' ? _voiceTarget : _voiceSource) == 'coral' ? 'female' : 'male';
+      final gr = (lang == _targetLang ? _voiceTarget : _voiceSource) == 'nova' || (lang == _targetLang ? _voiceTarget : _voiceSource) == 'coral' ? 'female' : 'male';
       await _speech.speak(msg.translated, lang, gender: gr);
     } else {
       await _playOpenAITTS(
-          msg.translated, lang, lang == 'ja' ? _voiceTarget : _voiceSource);
+          msg.translated, lang, lang == _targetLang ? _voiceTarget : _voiceSource);
     }
   }
 
@@ -831,7 +826,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     if (_messages.isEmpty) {
       return Center(
         child: Text(
-          '한국어 또는 일본어로 입력하세요',
+          '${getLangByCode(_sourceLang).name} 또는 ${getLangByCode(_targetLang).name}로 입력하세요',
           style: TextStyle(color: Colors.grey, fontSize: 14),
         ),
       );
@@ -956,7 +951,9 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
             ),
           // AI toggle
           GestureDetector(
-            onTap: () {
+            onTap: () async {
+              // Stop any in-progress recording/listening before toggling
+              if (_isListening || _isRecording) await _stopAll();
               setState(() => _aiMode = !_aiMode);
               // Realtime: enter/exit AI hold
               if (_realtimeActive && _realtime != null) {
@@ -991,7 +988,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
               child: TextField(
                 controller: _textController,
                 decoration: InputDecoration(
-                  hintText: '한국어 또는 일본어 입력...',
+                  hintText: '${getLangByCode(_sourceLang).localName} 또는 ${getLangByCode(_targetLang).localName} 입력...',
                   hintStyle: const TextStyle(fontSize: 13),
                   contentPadding: const EdgeInsets.symmetric(horizontal: 12),
                   border: OutlineInputBorder(

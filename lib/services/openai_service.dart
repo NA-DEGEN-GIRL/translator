@@ -55,10 +55,8 @@ class OpenAIService {
   }
 
   Future<Uint8List> tts(String text, String lang, {String? voice}) async {
-    final defaultVoice = lang == 'ja' ? 'onyx' : 'nova';
-    final instructions = lang == 'ja'
-        ? 'Speak naturally in Japanese like a friendly interpreter.'
-        : 'Speak naturally in Korean like a friendly interpreter.';
+    final defaultVoice = voice ?? 'nova';
+    final instructions = 'Speak naturally like a friendly interpreter. Use a warm, conversational tone.';
 
     final response = await http.post(
       Uri.parse('https://api.openai.com/v1/audio/speech'),
@@ -89,7 +87,7 @@ class OpenAIService {
     );
     request.headers['Authorization'] = 'Bearer $apiKey';
     request.fields['model'] = 'gpt-4o-mini-transcribe';
-    request.fields['language'] = lang == 'ja' ? 'ja' : 'ko';
+    request.fields['language'] = lang;
     request.files.add(http.MultipartFile.fromBytes(
       'file',
       audioBytes,

@@ -28,7 +28,7 @@ class SpeechService {
 
       _log('Total voices: ${voices.length}');
 
-      for (final lang in ['ja', 'ko']) {
+      for (final lang in ['ko','ja','zh','en','de','fr','vi','ru']) {
         final prefix = lang == 'ja' ? 'ja' : 'ko';
         final langVoices = voices.where((v) {
           final locale = (v['locale'] ?? v['name'] ?? '').toString().toLowerCase();
@@ -124,7 +124,7 @@ class SpeechService {
   }
 
   Future<void> speak(String text, String lang, {double rate = 1.0, String gender = 'female'}) async {
-    final locale = lang == 'ja' ? 'ja-JP' : 'ko-KR';
+    final locale = lang.contains('-') ? lang : '$lang-${lang.toUpperCase()}';
     await _tts.setLanguage(locale);
 
     // Android: flutter_tts internally multiplies rate by 2x

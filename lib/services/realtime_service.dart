@@ -301,6 +301,7 @@ HARD RULES
 
   Future<void> stop() async {
     _active = false;
+    _aiHold = false;
     _cancelUnmuteWatchdog();
     _dc?.close();
     _dc = null;
