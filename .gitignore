@@ -14,6 +14,7 @@ __pycache__/
 # Secrets
 .env
 .env.flutter
+.telegram.env
 aws1.pem
 .mcp.json
 
