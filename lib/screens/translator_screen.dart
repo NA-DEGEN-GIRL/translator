@@ -46,6 +46,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
   bool _realtimeActive = false;
 
   // Settings
+  String _textDirection = 'source2target'; // for text input
   String _mode = 'browser'; // browser, openai, realtime
   String _model = 'gpt-5.4-nano';
   String _sourceLang = 'ko';
@@ -456,10 +457,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     if (_mode == 'realtime' && _realtimeActive) {
       _realtime?.sendText(text);
     } else {
-      // Auto-detect: if text matches target language, reverse direction
-      final detectedLang = _detectLang(text);
-      final direction = detectedLang == _targetLang ? 'target2source' : 'source2target';
-      _handleTranslation(text, forceDirection: direction);
+      _handleTranslation(text, forceDirection: _textDirection);
     }
   }
 
@@ -854,6 +852,26 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
             color: Colors.grey,
             onTap: _clearChat,
             outlined: true,
+          ),
+          const SizedBox(width: 4),
+          // Direction toggle for text input
+          GestureDetector(
+            onTap: () => setState(() {
+              _textDirection = _textDirection == 'source2target' ? 'target2source' : 'source2target';
+            }),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+              decoration: BoxDecoration(
+                color: _textDirection == 'source2target' ? const Color(0xFF4A90D9) : const Color(0xFFE85D75),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Text(
+                _textDirection == 'source2target'
+                    ? '${_sourceLang.toUpperCase()}→${_targetLang.toUpperCase()}'
+                    : '${_targetLang.toUpperCase()}→${_sourceLang.toUpperCase()}',
+                style: const TextStyle(fontSize: 8, fontWeight: FontWeight.bold, color: Colors.white),
+              ),
+            ),
           ),
           const SizedBox(width: 4),
           // Text input
