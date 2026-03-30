@@ -166,17 +166,35 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
   }
 
   String _detectLang(String text) {
-    int ko = 0, ja = 0;
+    // Detect by unicode ranges
+    final scores = <String, int>{};
     for (final ch in text.runes) {
-      if ((ch >= 0xAC00 && ch <= 0xD7AF) ||
-          (ch >= 0x1100 && ch <= 0x11FF) ||
-          (ch >= 0x3130 && ch <= 0x318F)) ko++;
-      if ((ch >= 0x3040 && ch <= 0x309F) || (ch >= 0x30A0 && ch <= 0x30FF)) {
-        ja++;
+      // Korean
+      if ((ch >= 0xAC00 && ch <= 0xD7AF) || (ch >= 0x1100 && ch <= 0x11FF) || (ch >= 0x3130 && ch <= 0x318F)) {
+        scores['ko'] = (scores['ko'] ?? 0) + 1;
       }
-      if (ch >= 0x4E00 && ch <= 0x9FFF) ja++;
+      // Japanese (hiragana/katakana)
+      if ((ch >= 0x3040 && ch <= 0x309F) || (ch >= 0x30A0 && ch <= 0x30FF)) {
+        scores['ja'] = (scores['ja'] ?? 0) + 1;
+      }
+      // CJK ideographs — could be Chinese or Japanese
+      if (ch >= 0x4E00 && ch <= 0x9FFF) {
+        scores['zh'] = (scores['zh'] ?? 0) + 1;
+        scores['ja'] = (scores['ja'] ?? 0) + 1; // shared
+      }
+      // Cyrillic → Russian
+      if ((ch >= 0x0400 && ch <= 0x04FF)) {
+        scores['ru'] = (scores['ru'] ?? 0) + 1;
+      }
+      // Vietnamese diacritics are Latin-based, hard to detect by unicode alone
+      // German/French/English are all Latin — fallback to source lang
     }
-    return ko >= ja ? 'ko' : 'ja';
+
+    if (scores.isEmpty) return _sourceLang; // default
+
+    // Return highest scoring language
+    final best = scores.entries.reduce((a, b) => a.value > b.value ? a : b);
+    return best.key;
   }
 
   void _scrollToBottom() {
@@ -438,7 +456,10 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     if (_mode == 'realtime' && _realtimeActive) {
       _realtime?.sendText(text);
     } else {
-      _handleTranslation(text);
+      // Auto-detect: if text matches target language, reverse direction
+      final detectedLang = _detectLang(text);
+      final direction = detectedLang == _targetLang ? 'target2source' : 'source2target';
+      _handleTranslation(text, forceDirection: direction);
     }
   }
 
