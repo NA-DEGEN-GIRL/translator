@@ -457,7 +457,17 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     if (_mode == 'realtime' && _realtimeActive) {
       _realtime?.sendText(text);
     } else {
-      _handleTranslation(text, forceDirection: _textDirection);
+      // Auto-detect language, fallback to toggle direction
+      final detected = _detectLang(text);
+      String direction;
+      if (detected == _sourceLang) {
+        direction = 'source2target';
+      } else if (detected == _targetLang) {
+        direction = 'target2source';
+      } else {
+        direction = _textDirection; // fallback for Latin/undetectable
+      }
+      _handleTranslation(text, forceDirection: direction);
     }
   }
 
