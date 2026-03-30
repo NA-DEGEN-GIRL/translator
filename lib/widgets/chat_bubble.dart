@@ -99,15 +99,18 @@ class ChatBubble extends StatelessWidget {
                       ],
                     ],
                   ),
-                  const SizedBox(height: 2),
-                  SelectableText(
-                    message.original,
-                    style: TextStyle(
-                      fontSize: fontSize * 0.7,
-                      color: accentColor.withOpacity(0.65),
+                  // Show original only if different from translated
+                  if (message.original != message.translated) ...[
+                    const SizedBox(height: 2),
+                    SelectableText(
+                      message.original,
+                      style: TextStyle(
+                        fontSize: fontSize * 0.7,
+                        color: accentColor.withOpacity(0.65),
+                      ),
+                      textAlign: isFromSource ? TextAlign.right : TextAlign.left,
                     ),
-                    textAlign: isFromSource ? TextAlign.right : TextAlign.left,
-                  ),
+                  ],
                 ],
               ),
             ),

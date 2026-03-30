@@ -729,8 +729,9 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
           // For display: translated text is the output, original needs to be reconstructed
           // turn.input = transcript of what was said (in source lang)
           // turn.output = AI's translation (in target lang)
+          // Realtime: only show translation result (no original transcript available)
           final msg = ChatMessage(
-            original: turn.input.isNotEmpty ? turn.input : turn.output,
+            original: turn.output, // translation is the main content
             translated: turn.output,
             direction: direction,
           );
@@ -754,7 +755,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
                   final idx = _messages.indexOf(msg);
                   if (idx >= 0) {
                     _messages[idx] = ChatMessage(
-                      original: turn.input.isNotEmpty ? turn.input : r['translated']!,
+                      original: msg.translated, // keep translation as main
                       translated: msg.translated,
                       backTranslation: r['translated'],
                       direction: msg.direction,
