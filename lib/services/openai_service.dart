@@ -9,24 +9,19 @@ class OpenAIService {
   OpenAIService(this.apiKey);
 
   Future<Map<String, String?>> translate(
-    String text,
-    String direction, {
+    String text, {
+    String sourceLang = 'Korean',
+    String targetLang = 'Japanese',
     String model = 'gpt-5.4-nano',
-    List<Map<String, String>> context = const [],
   }) async {
-    final systemPrompt = direction == 'ko2ja'
-        ? 'You are a Korean→Japanese translator. Translate the input to natural Japanese. '
-            'Reply in JSON: {"translated": "<Japanese>"}'
-        : 'You are a Japanese→Korean translator. Translate the input to natural Korean. '
-            'Reply in JSON: {"translated": "<Korean>"}';
+    final systemPrompt =
+        'You are a $sourceLang→$targetLang translator. '
+        'Translate the input to natural $targetLang. '
+        'Reply in JSON: {"translated": "<$targetLang>"}';
 
     final messages = <Map<String, String>>[
       {'role': 'system', 'content': systemPrompt},
     ];
-
-    for (final ctx in context.take(6)) {
-      messages.add(ctx);
-    }
 
     messages.add({'role': 'user', 'content': text});
 
@@ -53,7 +48,6 @@ class OpenAIService {
       final result = jsonDecode(data['choices'][0]['message']['content']);
       return {
         'translated': result['translated'] ?? '',
-        'back_translation': null,
       };
     } catch (e) {
       throw Exception('Translation parse error: $e');

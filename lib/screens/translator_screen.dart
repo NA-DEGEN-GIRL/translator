@@ -12,6 +12,8 @@ import '../services/openai_service.dart';
 import '../services/speech_service.dart';
 import '../services/realtime_service.dart';
 import '../widgets/chat_bubble.dart';
+import '../widgets/settings_sheet.dart';
+import '../models/language.dart';
 import '../main.dart' show clearApiKey, ApiKeyScreen;
 
 class TranslatorScreen extends StatefulWidget {
@@ -46,17 +48,19 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
   // Settings
   String _mode = 'browser'; // browser, openai, realtime
   String _model = 'gpt-5.4-nano';
-  bool _ttsJaEnabled = false;
-  bool _ttsKoEnabled = false;
-  String _voiceJa = 'onyx';
-  String _voiceKo = 'nova';
+  String _sourceLang = 'ko';
+  String _targetLang = 'ja';
+  String _displayMode = 'face'; // 'face' (대면) or 'one' (단방향)
+  bool _ttsSourceEnabled = false;
+  bool _ttsTargetEnabled = false;
+  String _voiceSource = 'nova';
+  String _voiceTarget = 'onyx';
   double _fontSize = 16;
   String _micLang = 'ko';
-  bool _showSettings = false;
   double _ttsSpeed = 1.0;
   int _pauseSeconds = 3;
   double _vadThreshold = 0.9;
-  double _noiseThreshold = -30; // dB, below this = silence
+  double _noiseThreshold = -30;
   String _realtimeModel = 'gpt-realtime-mini';
 
   @override
@@ -81,10 +85,13 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
   Future<void> _loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
-      _ttsJaEnabled = prefs.getBool('ttsJa') ?? false;
-      _ttsKoEnabled = prefs.getBool('ttsKo') ?? false;
-      _voiceJa = prefs.getString('voiceJa') ?? 'onyx';
-      _voiceKo = prefs.getString('voiceKo') ?? 'nova';
+      _sourceLang = prefs.getString('sourceLang') ?? 'ko';
+      _targetLang = prefs.getString('targetLang') ?? 'ja';
+      _displayMode = prefs.getString('displayMode') ?? 'face';
+      _ttsSourceEnabled = prefs.getBool('ttsSource') ?? false;
+      _ttsTargetEnabled = prefs.getBool('ttsTarget') ?? false;
+      _voiceSource = prefs.getString('voiceSource') ?? 'nova';
+      _voiceTarget = prefs.getString('voiceTarget') ?? 'onyx';
       _fontSize = prefs.getDouble('fontSize') ?? 16;
       _mode = prefs.getString('mode') ?? 'browser';
       _model = prefs.getString('model') ?? 'gpt-5.4-nano';
@@ -92,15 +99,20 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
       _pauseSeconds = prefs.getInt('pauseSeconds') ?? 3;
       _realtimeModel = prefs.getString('realtimeModel') ?? 'gpt-realtime-mini';
       _noiseThreshold = prefs.getDouble('noiseThreshold') ?? -30;
+      _vadThreshold = prefs.getDouble('vadThreshold') ?? 0.9;
+      _micLang = _sourceLang;
     });
   }
 
   Future<void> _saveSettings() async {
     final prefs = await SharedPreferences.getInstance();
-    prefs.setBool('ttsJa', _ttsJaEnabled);
-    prefs.setBool('ttsKo', _ttsKoEnabled);
-    prefs.setString('voiceJa', _voiceJa);
-    prefs.setString('voiceKo', _voiceKo);
+    prefs.setString('sourceLang', _sourceLang);
+    prefs.setString('targetLang', _targetLang);
+    prefs.setString('displayMode', _displayMode);
+    prefs.setBool('ttsSource', _ttsSourceEnabled);
+    prefs.setBool('ttsTarget', _ttsTargetEnabled);
+    prefs.setString('voiceSource', _voiceSource);
+    prefs.setString('voiceTarget', _voiceTarget);
     prefs.setDouble('fontSize', _fontSize);
     prefs.setString('mode', _mode);
     prefs.setString('model', _model);
@@ -108,6 +120,48 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     prefs.setInt('pauseSeconds', _pauseSeconds);
     prefs.setString('realtimeModel', _realtimeModel);
     prefs.setDouble('noiseThreshold', _noiseThreshold);
+    prefs.setDouble('vadThreshold', _vadThreshold);
+  }
+
+  void _openSettings() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => SettingsSheet(
+        mode: _mode,
+        model: _model,
+        realtimeModel: _realtimeModel,
+        sourceLang: _sourceLang,
+        targetLang: _targetLang,
+        displayMode: _displayMode,
+        ttsSourceEnabled: _ttsSourceEnabled,
+        ttsTargetEnabled: _ttsTargetEnabled,
+        voiceSource: _voiceSource,
+        voiceTarget: _voiceTarget,
+        fontSize: _fontSize,
+        ttsSpeed: _ttsSpeed,
+        pauseSeconds: _pauseSeconds,
+        noiseThreshold: _noiseThreshold,
+        vadThreshold: _vadThreshold,
+        onModeChanged: (v) { setState(() => _mode = v); _saveSettings(); Navigator.pop(context); },
+        onModelChanged: (v) { setState(() => _model = v); _saveSettings(); },
+        onRealtimeModelChanged: (v) { setState(() => _realtimeModel = v); _saveSettings(); },
+        onSourceLangChanged: (v) { setState(() { _sourceLang = v; _micLang = v; }); _saveSettings(); },
+        onTargetLangChanged: (v) { setState(() => _targetLang = v); _saveSettings(); },
+        onDisplayModeChanged: (v) { setState(() => _displayMode = v); _saveSettings(); },
+        onTtsSourceChanged: (v) { setState(() => _ttsSourceEnabled = v); _saveSettings(); _updateRealtimeAudioMute(); },
+        onTtsTargetChanged: (v) { setState(() => _ttsTargetEnabled = v); _saveSettings(); _updateRealtimeAudioMute(); },
+        onVoiceSourceChanged: (v) { setState(() => _voiceSource = v); _saveSettings(); },
+        onVoiceTargetChanged: (v) { setState(() => _voiceTarget = v); _saveSettings(); },
+        onFontSizeChanged: (v) { setState(() => _fontSize = v); _saveSettings(); },
+        onTtsSpeedChanged: (v) { setState(() => _ttsSpeed = v); _saveSettings(); },
+        onPauseSecondsChanged: (v) { setState(() => _pauseSeconds = v); _saveSettings(); },
+        onNoiseThresholdChanged: (v) { setState(() => _noiseThreshold = v); _saveSettings(); },
+        onVadThresholdChanged: (v) { setState(() => _vadThreshold = v); _saveSettings(); },
+        onResetApiKey: () { Navigator.pop(context); _resetApiKey(); },
+      ),
+    );
   }
 
   String _detectLang(String text) {
@@ -148,14 +202,22 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     if (text.isEmpty || _isProcessing) return;
     setState(() => _isProcessing = true);
 
-    final direction =
-        forceDirection ?? (_detectLang(text) == 'ko' ? 'ko2ja' : 'ja2ko');
+    // forceDirection: 'source2target' or 'target2source'
+    // Auto-detect based on text content
+    final direction = forceDirection ?? 'source2target';
 
     String translated = '';
     String? backTranslation;
 
     try {
-      final result = await _openai.translate(text, direction, model: _model);
+      final srcName = getLangByCode(_sourceLang).name;
+      final tgtName = getLangByCode(_targetLang).name;
+      // direction determines source→target or target→source
+      final result = await _openai.translate(text,
+        sourceLang: direction == 'source2target' ? srcName : tgtName,
+        targetLang: direction == 'source2target' ? tgtName : srcName,
+        model: _model,
+      );
       translated = result['translated'] ?? '';
       backTranslation = result['back_translation'];
 
@@ -164,8 +226,8 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
           _messages.add(ChatMessage(
             original: text,
             translated: translated,
-            backTranslation: backTranslation,
-            direction: direction,
+            backTranslation: null,
+            direction: direction == 'source2target' ? '${_sourceLang}2${_targetLang}' : '${_targetLang}2${_sourceLang}',
           ));
         });
         _scrollToBottom();
@@ -178,16 +240,15 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
 
     // TTS after processing flag released — doesn't block next input
     if (translated.isNotEmpty) {
-      final ttsLang = direction == 'ko2ja' ? 'ja' : 'ko';
-      final shouldPlay =
-          (ttsLang == 'ja' && _ttsJaEnabled) ||
-          (ttsLang == 'ko' && _ttsKoEnabled);
+      final ttsLangCode = direction == 'source2target' ? _targetLang : _sourceLang;
+      final shouldPlay = direction == 'source2target' ? _ttsTargetEnabled : _ttsSourceEnabled;
+      final voice = direction == 'source2target' ? _voiceTarget : _voiceSource;
       if (shouldPlay) {
         if (_mode == 'browser') {
-          final gender = (ttsLang == 'ja' ? _voiceJa : _voiceKo) == 'nova' || (ttsLang == 'ja' ? _voiceJa : _voiceKo) == 'coral' ? 'female' : 'male';
-          _speech.speak(translated, ttsLang, rate: _ttsSpeed, gender: gender);
+          final gender = (voice == 'nova' || voice == 'coral') ? 'female' : 'male';
+          _speech.speak(translated, ttsLangCode, rate: _ttsSpeed, gender: gender);
         } else {
-          _playOpenAITTS(translated, ttsLang, ttsLang == 'ja' ? _voiceJa : _voiceKo);
+          _playOpenAITTS(translated, ttsLangCode, voice);
         }
       }
     }
@@ -199,7 +260,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
       await _audioPlayer.play(BytesSource(audioBytes));
     } catch (e) {
       // Fallback to browser TTS
-      final g = (lang == 'ja' ? _voiceJa : _voiceKo) == 'nova' || (lang == 'ja' ? _voiceJa : _voiceKo) == 'coral' ? 'female' : 'male';
+      final g = (lang == 'ja' ? _voiceTarget : _voiceSource) == 'nova' || (lang == 'ja' ? _voiceTarget : _voiceSource) == 'coral' ? 'female' : 'male';
       await _speech.speak(text, lang, gender: g);
     }
   }
@@ -487,7 +548,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
 
   void _updateRealtimeAudioMute() {
     if (_realtimeActive && _realtime != null) {
-      final shouldMute = !_ttsJaEnabled && !_ttsKoEnabled;
+      final shouldMute = !_ttsTargetEnabled && !_ttsSourceEnabled;
       _realtime!.muteAudio(shouldMute);
     }
   }
@@ -509,7 +570,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     _realtime = RealtimeService(
       apiKey: widget.apiKey,
       model: _realtimeModel,
-      voice: _voiceJa == 'onyx' ? 'ash' : 'coral',
+      voice: _voiceTarget == 'onyx' ? 'ash' : 'coral',
       onEvent: _handleRealtimeEvent,
     );
 
@@ -587,8 +648,9 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
 
           // Back-translation only if no input transcript available
           if (turn.input.isEmpty) {
-            final reverseDir = outputLang == 'ja' ? 'ja2ko' : 'ko2ja';
-            _openai.translate(turn.output, reverseDir, model: _model).then((r) {
+            final tgtName = getLangByCode(_targetLang).name;
+            final srcName = getLangByCode(_sourceLang).name;
+            _openai.translate(turn.output, sourceLang: tgtName, targetLang: srcName, model: _model).then((r) {
               if (!mounted) return;
               if (r['translated']?.isNotEmpty ?? false) {
                 setState(() {
@@ -632,11 +694,11 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
   Future<void> _replayMessage(ChatMessage msg) async {
     final lang = msg.direction == 'ko2ja' ? 'ja' : 'ko';
     if (_mode == 'browser') {
-      final gr = (lang == 'ja' ? _voiceJa : _voiceKo) == 'nova' || (lang == 'ja' ? _voiceJa : _voiceKo) == 'coral' ? 'female' : 'male';
+      final gr = (lang == 'ja' ? _voiceTarget : _voiceSource) == 'nova' || (lang == 'ja' ? _voiceTarget : _voiceSource) == 'coral' ? 'female' : 'male';
       await _speech.speak(msg.translated, lang, gender: gr);
     } else {
       await _playOpenAITTS(
-          msg.translated, lang, lang == 'ja' ? _voiceJa : _voiceKo);
+          msg.translated, lang, lang == 'ja' ? _voiceTarget : _voiceSource);
     }
   }
 
@@ -664,99 +726,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     );
   }
 
-  Widget _buildSettingsRow() {
-    if (!_showSettings) return const SizedBox.shrink();
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      child: Wrap(
-        spacing: 4,
-        runSpacing: 4,
-        alignment: WrapAlignment.center,
-        children: [
-          _labeledSetting('모드', _buildDropdown<String>(
-            value: _mode,
-            items: {'browser': '브라우저', 'openai': 'OpenAI', 'realtime': 'RT'},
-            onChanged: (v) => setState(() { _mode = v!; _saveSettings(); }),
-          )),
-          if (_mode == 'realtime')
-            _labeledSetting('모델', _buildDropdown<String>(
-              value: _realtimeModel,
-              items: {'gpt-realtime-mini': 'mini', 'gpt-realtime': 'std', 'gpt-realtime-1.5': '1.5'},
-              onChanged: (v) => setState(() { _realtimeModel = v!; _saveSettings(); }),
-            ))
-          else
-            _labeledSetting('모델', _buildDropdown<String>(
-              value: _model,
-              items: {'gpt-4.1-nano': '4.1n', 'gpt-4.1-mini': '4.1m', 'gpt-5.4-nano': '5.4n', 'gpt-5.4-mini': '5.4m', 'gpt-5.4': '5.4'},
-              onChanged: (v) => setState(() { _model = v!; _saveSettings(); }),
-            )),
-          _labeledSetting('JA', _buildToggle('', _ttsJaEnabled, () {
-            setState(() => _ttsJaEnabled = !_ttsJaEnabled); _saveSettings();
-            _updateRealtimeAudioMute();
-          })),
-          _labeledSetting('JA음성', _buildDropdown<String>(
-            value: _voiceJa,
-            items: {'onyx': '남', 'coral': '여'},
-            onChanged: (v) => setState(() { _voiceJa = v!; _saveSettings(); }),
-          )),
-          _labeledSetting('KO', _buildToggle('', _ttsKoEnabled, () {
-            setState(() => _ttsKoEnabled = !_ttsKoEnabled); _saveSettings();
-            _updateRealtimeAudioMute();
-          })),
-          _labeledSetting('KO음성', _buildDropdown<String>(
-            value: _voiceKo,
-            items: {'nova': '여', 'ash': '남'},
-            onChanged: (v) => setState(() { _voiceKo = v!; _saveSettings(); }),
-          )),
-          _labeledSetting('크기', _buildDropdown<double>(
-            value: _fontSize,
-            items: {12.0: '12', 14.0: '14', 16.0: '16', 18.0: '18', 20.0: '20', 24.0: '24', 28.0: '28', 32.0: '32'},
-            onChanged: (v) => setState(() { _fontSize = v!; _saveSettings(); }),
-          )),
-          // TTS Speed (browser only)
-          if (_mode == 'browser')
-            _labeledSetting('속도', _buildDropdown<double>(
-              value: _ttsSpeed,
-              items: {0.5: '0.5x', 0.75: '0.75x', 1.0: '1x', 1.25: '1.25x', 1.5: '1.5x'},
-              onChanged: (v) => setState(() { _ttsSpeed = v!; _saveSettings(); }),
-            )),
-          // Silence timeout (browser + openai)
-          if (_mode == 'browser' || _mode == 'openai')
-            _labeledSetting('묵음', _buildDropdown<int>(
-              value: _pauseSeconds,
-              items: {1: '1s', 2: '2s', 3: '3s', 5: '5s', 7: '7s', 30: 'OFF'},
-              onChanged: (v) => setState(() { _pauseSeconds = v!; _saveSettings(); }),
-            )),
-          // Noise threshold (openai only)
-          if (_mode == 'openai')
-            _labeledSetting('소음', _buildDropdown<double>(
-              value: _noiseThreshold,
-              items: {-20.0: '높음', -30.0: '보통', -40.0: '낮음', -50.0: '조용'},
-              onChanged: (v) => setState(() { _noiseThreshold = v!; _saveSettings(); }),
-            )),
-          // VAD threshold (realtime only)
-          if (_mode == 'realtime')
-            _labeledSetting('감도', _buildDropdown<double>(
-              value: _vadThreshold,
-              items: {0.3: '0.3', 0.5: '0.5', 0.7: '0.7', 0.8: '0.8', 0.9: '0.9', 0.95: '0.95'},
-              onChanged: (v) => setState(() { _vadThreshold = v!; _saveSettings(); }),
-            )),
-          // API key reset
-          GestureDetector(
-            onTap: _resetApiKey,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-              decoration: BoxDecoration(
-                border: Border.all(color: Colors.red.shade300),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Text('키초기화', style: TextStyle(fontSize: 9, color: Colors.red.shade400, fontWeight: FontWeight.w600)),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  // Settings now in BottomSheet via _openSettings()
 
   Widget _labeledSetting(String label, Widget child) {
     return Row(
@@ -916,10 +886,10 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
           const SizedBox(width: 4),
           // Settings toggle
           _buildCircleButton(
-            icon: _showSettings ? Icons.expand_more : Icons.settings,
+            icon: Icons.settings,
             size: 28,
-            color: _showSettings ? const Color(0xFF4A90D9) : Colors.grey,
-            onTap: () => setState(() => _showSettings = !_showSettings),
+            color: Colors.grey,
+            onTap: _openSettings,
             outlined: true,
           ),
         ],
@@ -963,7 +933,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
             // === Mirror half (rotated) ===
             Expanded(
               child: Transform.rotate(
-                angle: 3.14159,
+                angle: _displayMode == 'face' ? 3.14159 : 0,
                 child: Column(
                   children: [
                     // Label
@@ -973,7 +943,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
                         border: Border(bottom: BorderSide(color: Colors.grey.shade300)),
                       ),
                       child: Text(
-                        '韓国語⇄日本語通訳 / 한국어⇄일본어통역',
+                        '${getLangByCode(_targetLang).name}⇄${getLangByCode(_sourceLang).name}',
                         style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.grey),
                         textAlign: TextAlign.center,
                       ),
@@ -1051,7 +1021,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
                       border: Border(bottom: BorderSide(color: Colors.grey.shade300)),
                     ),
                     child: Text(
-                      '한국어⇄일본어통역 / 韓国語⇄日本語通訳',
+                      '${getLangByCode(_sourceLang).name}⇄${getLangByCode(_targetLang).name}',
                       style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.grey),
                       textAlign: TextAlign.center,
                     ),
@@ -1080,7 +1050,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
                       ),
                     ),
                   // Settings
-                  _buildSettingsRow(),
+                  // Settings via BottomSheet (gear icon in input row)
                   // Input
                   _buildInputRow(),
                   const SizedBox(height: 4),
