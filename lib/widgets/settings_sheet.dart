@@ -191,6 +191,8 @@ class SettingsSheet extends StatelessWidget {
                 'gpt-5.4': '5.4',
               }, onAiModelChanged),
               _dropdownTile('AI 묵음', aiPauseSeconds.toString(), {
+                '1': '1s',
+                '2': '2s',
                 '3': '3s',
                 '5': '5s',
                 '7': '7s',
