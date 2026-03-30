@@ -212,10 +212,7 @@ class SettingsSheet extends StatelessWidget {
                 '12': '12', '14': '14', '16': '16', '18': '18',
                 '20': '20', '24': '24', '28': '28', '32': '32',
               }, (v) => onFontSizeChanged(double.parse(v))),
-              if (mode == 'browser')
-                _dropdownTile('속도', ttsSpeed.toString(), {
-                  '0.5': '0.5x', '0.75': '0.75x', '1.0': '1x', '1.25': '1.25x', '1.5': '1.5x',
-                }, (v) => onTtsSpeedChanged(double.parse(v))),
+              // TTS speed (legacy browser mode removed)
               const SizedBox(height: 12),
 
               // === 입력 감지 ===

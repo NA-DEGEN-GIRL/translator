@@ -298,12 +298,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
       final shouldPlay = direction == 'source2target' ? _ttsTargetEnabled : _ttsSourceEnabled;
       final voice = direction == 'source2target' ? _voiceTarget : _voiceSource;
       if (shouldPlay) {
-        if (_mode == 'browser') {
-          final gender = (voice == 'nova' || voice == 'coral') ? 'female' : 'male';
-          _speech.speak(translated, ttsLangCode, rate: _ttsSpeed, gender: gender);
-        } else {
-          _playOpenAITTS(translated, ttsLangCode, voice);
-        }
+        _playOpenAITTS(translated, ttsLangCode, voice);
       }
     }
   }
@@ -812,14 +807,11 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
   }
 
   Future<void> _replayMessage(ChatMessage msg) async {
-    final lang = msg.direction.split('2').length > 1 ? msg.direction.split('2')[1] : _targetLang;
-    if (_mode == 'browser') {
-      final gr = (lang == _targetLang ? _voiceTarget : _voiceSource) == 'nova' || (lang == _targetLang ? _voiceTarget : _voiceSource) == 'coral' ? 'female' : 'male';
-      await _speech.speak(msg.translated, lang, gender: gr);
-    } else {
-      await _playOpenAITTS(
-          msg.translated, lang, lang == _targetLang ? _voiceTarget : _voiceSource);
-    }
+    if (msg.isAI) return; // AI messages don't have audio
+    final parts = msg.direction.split('2');
+    final lang = parts.length > 1 ? parts[1] : _targetLang;
+    final voice = lang == _targetLang ? _voiceTarget : _voiceSource;
+    await _playOpenAITTS(msg.translated, lang, voice);
   }
 
   Widget _buildChatList(ScrollController controller) {

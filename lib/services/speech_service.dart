@@ -29,7 +29,7 @@ class SpeechService {
       _log('Total voices: ${voices.length}');
 
       for (final lang in ['ko','ja','zh','en','de','fr','vi','ru']) {
-        final prefix = lang == 'ja' ? 'ja' : 'ko';
+        final prefix = lang;
         final langVoices = voices.where((v) {
           final locale = (v['locale'] ?? v['name'] ?? '').toString().toLowerCase();
           return locale.contains(prefix);
