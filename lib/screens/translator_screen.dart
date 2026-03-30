@@ -48,7 +48,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
   // Settings
   String _textDirection = 'source2target'; // for text input
   bool _aiMode = false;
-  String _mode = 'browser'; // browser, openai, realtime
+  String _mode = 'openai'; // browser, openai, realtime
   String _model = 'gpt-5.4-nano';
   String _aiModel = 'gpt-5.4-mini';
   int _aiPauseSeconds = 5; // AI mode silence timeout (longer than translation)
@@ -103,7 +103,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
       _voiceSource = prefs.getString('voiceSource') ?? 'nova';
       _voiceTarget = prefs.getString('voiceTarget') ?? 'onyx';
       _fontSize = prefs.getDouble('fontSize') ?? 16;
-      _mode = prefs.getString('mode') ?? 'browser';
+      _mode = prefs.getString('mode') ?? 'openai';
       _model = prefs.getString('model') ?? 'gpt-5.4-nano';
       _aiModel = prefs.getString('aiModel') ?? 'gpt-5.4-mini';
       _aiPauseSeconds = prefs.getInt('aiPauseSeconds') ?? 5;
@@ -1018,17 +1018,17 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
               onTap: () => _realtimeActive ? _stopRealtime() : _startRealtime(),
             ),
           ] else if (_mode == 'realtime' && _aiMode) ...[
-            // Realtime + AI mode: use browser STT for AI question
+            // Realtime + AI mode: use OpenAI STT for AI question
             _buildLangMicButton(
               langCode: 'AI',
               color: const Color(0xFF8B5CF6),
-              isActive: _isListening,
+              isActive: _isRecording,
               onTap: () {
-                if (_isListening) {
-                  _stopListening();
+                if (_isRecording) {
+                  _stopOpenAIRecording();
                 } else {
                   setState(() => _micLang = _sourceLang);
-                  _startListening();
+                  _startOpenAIRecording();
                 }
               },
             ),
@@ -1089,7 +1089,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
   }
 
   void _handleMicTap(String lang, String direction) {
-    // If already listening/recording in this language, stop
+    // If already listening/recording, stop
     if ((_isListening || _isRecording) && _micLang == lang) {
       if (_isRecording) {
         _stopOpenAIRecording(forceDirection: direction);
@@ -1099,10 +1099,13 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
       return;
     }
 
-    // Start listening in the selected language
     setState(() => _micLang = lang);
-    if (_mode == 'openai') {
-      _startOpenAIRecording(forceDirection: direction);
+
+    // AI mode always uses OpenAI STT (record + Whisper)
+    // Ping-Pong mode also uses OpenAI STT
+    // Browser mode (legacy) uses browser STT
+    if (_aiMode || _mode == 'openai') {
+      _startOpenAIRecording(forceDirection: _aiMode ? null : direction);
     } else {
       _startListening();
     }

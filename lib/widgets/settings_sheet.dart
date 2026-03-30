@@ -161,8 +161,7 @@ class SettingsSheet extends StatelessWidget {
               // === 모드 ===
               _sectionTitle('모드 / 모델'),
               _dropdownTile('모드', mode, {
-                'browser': '브라우저',
-                'openai': 'OpenAI',
+                'openai': 'Ping-Pong',
                 'realtime': 'Realtime',
               }, onModeChanged),
               if (mode == 'realtime')
