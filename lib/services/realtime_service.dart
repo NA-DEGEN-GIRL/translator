@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:http/http.dart' as http;
 import '../models/language.dart';
+import '../prompts.dart';
 
 class RealtimeTurn {
   String input = '';
@@ -45,23 +46,9 @@ class RealtimeService {
   String _buildSystemPrompt() {
     final src = getLangByCode(sourceLangCode);
     final tgt = getLangByCode(targetLangCode);
-
-    return '''You are a strict translation engine.
-
-TASK
-- Translate ${src.name} <-> ${tgt.name} only.
-- ${src.name} input -> ${tgt.name} output only.
-- ${tgt.name} input -> ${src.name} output only.
-
-HARD RULES
-- DO NOT answer the user.
-- DO NOT act like an assistant.
-- DO NOT continue the conversation.
-- DO NOT explain, summarize, or add politeness not present in the source.
-- Preserve sentence type: question -> question, statement -> statement, command -> command.
-- Preserve meaning, tone, and intent as literally as natural.
-- Output translation only. No quotes. No labels. No extra words.
-- If input is unclear, noise-only, or incomplete, output nothing.''';
+    return AppPrompts.realtimeTranslation(
+      PromptLanguagePair(sourceLang: src.name, targetLang: tgt.name),
+    );
   }
 
   Future<void> start() async {

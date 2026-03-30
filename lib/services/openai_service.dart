@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:http/http.dart' as http;
+import '../prompts.dart';
 
 class OpenAIService {
   final String apiKey;
@@ -14,10 +15,9 @@ class OpenAIService {
     String targetLang = 'Japanese',
     String model = 'gpt-5.4-nano',
   }) async {
-    final systemPrompt =
-        'You are a $sourceLang→$targetLang translator. '
-        'Translate the input to natural $targetLang. '
-        'Reply in JSON: {"translated": "<$targetLang>"}';
+    final systemPrompt = AppPrompts.translationSystem(
+      PromptLanguagePair(sourceLang: sourceLang, targetLang: targetLang),
+    );
 
     final messages = <Map<String, String>>[
       {'role': 'system', 'content': systemPrompt},
@@ -56,7 +56,7 @@ class OpenAIService {
 
   Future<Uint8List> tts(String text, String lang, {String? voice}) async {
     final defaultVoice = voice ?? 'nova';
-    final instructions = 'Speak naturally like a friendly interpreter. Use a warm, conversational tone.';
+    final instructions = AppPrompts.ttsInstructions;
 
     final response = await http.post(
       Uri.parse('https://api.openai.com/v1/audio/speech'),
@@ -113,12 +113,9 @@ class OpenAIService {
     List<Map<String, String>> conversationContext = const [],
     String model = 'gpt-5.4-nano',
   }) async {
-    final systemPrompt =
-        'You are a helpful travel/conversation assistant embedded in a translation app. '
-        'The user is having a bilingual conversation and has a question. '
-        'Use the conversation context below as reference only. '
-        'Answer in the same language as the user\'s question. '
-        'Be concise and practical. Do not translate unless asked.';
+    final systemPrompt = AppPrompts.assistantSystem(
+      hasContext: conversationContext.isNotEmpty,
+    );
 
     final messages = <Map<String, String>>[
       {'role': 'system', 'content': systemPrompt},
