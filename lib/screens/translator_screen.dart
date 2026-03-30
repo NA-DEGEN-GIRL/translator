@@ -14,6 +14,7 @@ import '../services/realtime_service.dart';
 import '../widgets/chat_bubble.dart';
 import '../widgets/settings_sheet.dart';
 import '../models/language.dart';
+import '../prompts.dart';
 import '../main.dart' show clearApiKey, ApiKeyScreen;
 
 class TranslatorScreen extends StatefulWidget {
@@ -65,6 +66,13 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
   int _pauseSeconds = 3;
   double _vadThreshold = 0.9;
   double _noiseThreshold = -30;
+  String _toneMode = 'normal'; // normal, polite, casual
+  ToneMode get _tone => switch (_toneMode) {
+    'polite' => ToneMode.polite,
+    'casual' => ToneMode.casual,
+    _ => ToneMode.normal,
+  };
+  String _realtimeVoice = 'coral'; // Realtime API voices: alloy, ash, ballad, coral, echo, sage, shimmer, verse, marin, cedar
   String _realtimeModel = 'gpt-realtime-mini';
 
   @override
@@ -75,7 +83,6 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     _loadSettings();
   }
 
-  @override
   @override
   void dispose() {
     _ampSub?.cancel();
@@ -105,11 +112,15 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
       _fontSize = prefs.getDouble('fontSize') ?? 16;
       final savedMode = prefs.getString('mode') ?? 'openai';
       _mode = (savedMode == 'browser') ? 'openai' : savedMode; // migrate legacy
-      _model = prefs.getString('model') ?? 'gpt-5.4-nano';
-      _aiModel = prefs.getString('aiModel') ?? 'gpt-5.4-mini';
+      final savedModel = prefs.getString('model') ?? 'gpt-5.4-nano';
+      _model = savedModel.startsWith('gpt-4.1') ? 'gpt-5.4-nano' : savedModel;
+      final savedAiModel = prefs.getString('aiModel') ?? 'gpt-5.4-mini';
+      _aiModel = savedAiModel.startsWith('gpt-4.1') ? 'gpt-5.4-mini' : savedAiModel;
       _aiPauseSeconds = prefs.getInt('aiPauseSeconds') ?? 5;
       _ttsSpeed = prefs.getDouble('ttsSpeed') ?? 1.0;
       _pauseSeconds = prefs.getInt('pauseSeconds') ?? 3;
+      _toneMode = prefs.getString('toneMode') ?? 'normal';
+      _realtimeVoice = prefs.getString('realtimeVoice') ?? 'coral';
       _realtimeModel = prefs.getString('realtimeModel') ?? 'gpt-realtime-mini';
       _noiseThreshold = prefs.getDouble('noiseThreshold') ?? -30;
       _vadThreshold = prefs.getDouble('vadThreshold') ?? 0.9;
@@ -133,6 +144,8 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     prefs.setInt('aiPauseSeconds', _aiPauseSeconds);
     prefs.setDouble('ttsSpeed', _ttsSpeed);
     prefs.setInt('pauseSeconds', _pauseSeconds);
+    prefs.setString('toneMode', _toneMode);
+    prefs.setString('realtimeVoice', _realtimeVoice);
     prefs.setString('realtimeModel', _realtimeModel);
     prefs.setDouble('noiseThreshold', _noiseThreshold);
     prefs.setDouble('vadThreshold', _vadThreshold);
@@ -160,8 +173,13 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
         pauseSeconds: _aiMode ? _aiPauseSeconds : _pauseSeconds,
         noiseThreshold: _noiseThreshold,
         vadThreshold: _vadThreshold,
+        toneMode: _toneMode,
+        realtimeActive: _realtimeActive,
+        realtimeVoice: _realtimeVoice,
+        onRealtimeVoiceChanged: (v) { setState(() => _realtimeVoice = v); setSheetState((){}); _saveSettings(); },
         aiModel: _aiModel,
         aiPauseSeconds: _aiPauseSeconds,
+        onToneModeChanged: (v) { setState(() => _toneMode = v); setSheetState((){}); _saveSettings(); },
         onAiModelChanged: (v) { setState(() => _aiModel = v); setSheetState((){}); _saveSettings(); },
         onAiPauseSecondsChanged: (v) { setState(() => _aiPauseSeconds = v); setSheetState((){}); _saveSettings(); },
         onModeChanged: (v) { setState(() => _mode = v); setSheetState((){}); _saveSettings(); },
@@ -248,6 +266,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
         sourceLang: direction == 'source2target' ? srcName : tgtName,
         targetLang: direction == 'source2target' ? tgtName : srcName,
         model: _model,
+        tone: _tone,
       );
       translated = result['translated'] ?? '';
       backTranslation = result['back_translation'];
@@ -543,6 +562,9 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
   }
 
   void _clearChat() {
+    if (_realtimeActive && _realtime != null) {
+      _realtime!.clearState();
+    }
     setState(() {
       _messages.clear();
       _interimText = '';
@@ -654,8 +676,10 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
 
   void _updateRealtimeAudioMute() {
     if (_realtimeActive && _realtime != null) {
-      final shouldMute = !_ttsTargetEnabled && !_ttsSourceEnabled;
-      _realtime!.muteAudio(shouldMute);
+      // Update per-direction TTS + VAD auto-response settings
+      _realtime!.updateTtsSettings(_ttsSourceEnabled, _ttsTargetEnabled);
+      // Global mute when both are off (defense-in-depth)
+      _realtime!.muteAudio(!_ttsSourceEnabled && !_ttsTargetEnabled);
     }
   }
 
@@ -667,9 +691,13 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     _realtime = RealtimeService(
       apiKey: widget.apiKey,
       model: _realtimeModel,
-      voice: _voiceTarget == 'onyx' ? 'ash' : 'coral',
+      voice: _realtimeVoice,
       sourceLangCode: _sourceLang,
       targetLangCode: _targetLang,
+      vadThreshold: _vadThreshold,
+      tone: _tone,
+      ttsSourceEnabled: _ttsSourceEnabled,
+      ttsTargetEnabled: _ttsTargetEnabled,
       onEvent: _handleRealtimeEvent,
     );
 
@@ -723,6 +751,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
         break;
 
       case 'response.output_audio_transcript.delta':
+      case 'response.text.delta':
         final rid = event['response_id'] as String?;
         if (rid != null && _realtime!.turns.containsKey(rid)) {
           setState(() {
@@ -744,12 +773,11 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
               ? '${_sourceLang}2${_targetLang}'
               : '${_targetLang}2${_sourceLang}';
 
-          // For display: translated text is the output, original needs to be reconstructed
-          // turn.input = transcript of what was said (in source lang)
-          // turn.output = AI's translation (in target lang)
-          // Realtime: only show translation result (no original transcript available)
+          // turn.input = user's original speech transcript (from Whisper)
+          // turn.output = AI's translation
+          final hasOriginal = turn.input.isNotEmpty;
           final msg = ChatMessage(
-            original: turn.output, // translation is the main content
+            original: hasOriginal ? turn.input : turn.output,
             translated: turn.output,
             direction: direction,
           );
@@ -760,10 +788,8 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
           });
           _scrollToBottom();
 
-          // Always fetch reverse translation for the "original" line
-          // This gives us the input in the source language for display
-          {
-            // Reverse: translate output back to figure out what was originally said
+          // Reverse-translate to verify translation quality
+          if (turn.output.isNotEmpty && mounted) {
             final fromName = getLangByCode(didTranslate ? _targetLang : _sourceLang).name;
             final toName = getLangByCode(didTranslate ? _sourceLang : _targetLang).name;
             _openai.translate(turn.output, sourceLang: fromName, targetLang: toName, model: _model).then((r) {
@@ -773,7 +799,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
                   final idx = _messages.indexOf(msg);
                   if (idx >= 0) {
                     _messages[idx] = ChatMessage(
-                      original: msg.translated, // keep translation as main
+                      original: msg.original,
                       translated: msg.translated,
                       backTranslation: r['translated'],
                       direction: msg.direction,

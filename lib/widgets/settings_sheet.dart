@@ -2,6 +2,12 @@ import 'package:flutter/material.dart';
 import '../models/language.dart';
 
 class SettingsSheet extends StatelessWidget {
+  static const _chatModels = {
+    'gpt-5.4-nano': '5.4-nano',
+    'gpt-5.4-mini': '5.4-mini',
+    'gpt-5.4': '5.4',
+  };
+
   final String mode;
   final String model;
   final String realtimeModel;
@@ -17,8 +23,13 @@ class SettingsSheet extends StatelessWidget {
   final int pauseSeconds;
   final double noiseThreshold;
   final double vadThreshold;
+  final String toneMode;
+  final bool realtimeActive;
+  final String realtimeVoice;
+  final ValueChanged<String> onRealtimeVoiceChanged;
   final String aiModel;
   final int aiPauseSeconds;
+  final ValueChanged<String> onToneModeChanged;
   final ValueChanged<String> onAiModelChanged;
   final ValueChanged<int> onAiPauseSecondsChanged;
   final ValueChanged<String> onModeChanged;
@@ -55,8 +66,13 @@ class SettingsSheet extends StatelessWidget {
     required this.pauseSeconds,
     required this.noiseThreshold,
     required this.vadThreshold,
+    required this.toneMode,
+    this.realtimeActive = false,
+    this.realtimeVoice = 'coral',
+    required this.onRealtimeVoiceChanged,
     required this.aiModel,
     required this.aiPauseSeconds,
+    required this.onToneModeChanged,
     required this.onAiModelChanged,
     required this.onAiPauseSecondsChanged,
     required this.onModeChanged,
@@ -171,24 +187,22 @@ class SettingsSheet extends StatelessWidget {
                   'gpt-realtime-1.5': '1.5',
                 }, onRealtimeModelChanged)
               else
-                _dropdownTile('번역 모델', model, {
-                  'gpt-4.1-nano': '4.1-nano',
-                  'gpt-4.1-mini': '4.1-mini',
-                  'gpt-5.4-nano': '5.4-nano',
-                  'gpt-5.4-mini': '5.4-mini',
-                  'gpt-5.4': '5.4',
-                }, onModelChanged),
+                _dropdownTile('번역 모델', model, _chatModels, onModelChanged),
+              _dropdownTile('번역 톤', toneMode, {
+                'normal': '기본',
+                'polite': '예의',
+                'casual': '친구',
+              }, onToneModeChanged),
+              if (realtimeActive)
+                const Padding(
+                  padding: EdgeInsets.only(left: 80, bottom: 4),
+                  child: Text('⟳ Realtime 재시작 시 적용', style: TextStyle(fontSize: 10, color: Colors.orange)),
+                ),
               const SizedBox(height: 12),
 
               // === AI 어시스턴트 ===
               _sectionTitle('AI 어시스턴트'),
-              _dropdownTile('AI 모델', aiModel, {
-                'gpt-4.1-nano': '4.1-nano',
-                'gpt-4.1-mini': '4.1-mini',
-                'gpt-5.4-nano': '5.4-nano',
-                'gpt-5.4-mini': '5.4-mini',
-                'gpt-5.4': '5.4',
-              }, onAiModelChanged),
+              _dropdownTile('AI 모델', aiModel, _chatModels, onAiModelChanged),
               _dropdownTile('AI 묵음', aiPauseSeconds.toString(), {
                 '1': '1s',
                 '2': '2s',
@@ -203,11 +217,18 @@ class SettingsSheet extends StatelessWidget {
               // === 음성 출력 ===
               _sectionTitle('음성 출력'),
               _switchTile('${srcLang.name} TTS', ttsSourceEnabled, onTtsSourceChanged),
-              if (ttsSourceEnabled)
+              if (ttsSourceEnabled && mode != 'realtime')
                 _dropdownTile('음성', voiceSource, {'nova': '여', 'onyx': '남', 'ash': '남2', 'coral': '여2'}, onVoiceSourceChanged),
               _switchTile('${tgtLang.name} TTS', ttsTargetEnabled, onTtsTargetChanged),
-              if (ttsTargetEnabled)
+              if (ttsTargetEnabled && mode != 'realtime')
                 _dropdownTile('음성', voiceTarget, {'nova': '여', 'onyx': '남', 'ash': '남2', 'coral': '여2'}, onVoiceTargetChanged),
+              if (mode == 'realtime')
+                _dropdownTile('RT 음성', realtimeVoice, {'coral': '여', 'ash': '남', 'sage': '중성', 'verse': '부드러움'}, onRealtimeVoiceChanged),
+              if (realtimeActive)
+                const Padding(
+                  padding: EdgeInsets.only(left: 80, bottom: 4),
+                  child: Text('⟳ Realtime 재시작 시 적용', style: TextStyle(fontSize: 10, color: Colors.orange)),
+                ),
               _dropdownTile('크기', fontSize.toInt().toString(), {
                 '12': '12', '14': '14', '16': '16', '18': '18',
                 '20': '20', '24': '24', '28': '28', '32': '32',

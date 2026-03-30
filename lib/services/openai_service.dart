@@ -14,9 +14,11 @@ class OpenAIService {
     String sourceLang = 'Korean',
     String targetLang = 'Japanese',
     String model = 'gpt-5.4-nano',
+    ToneMode tone = ToneMode.normal,
   }) async {
     final systemPrompt = AppPrompts.translationSystem(
       PromptLanguagePair(sourceLang: sourceLang, targetLang: targetLang),
+      tone: tone,
     );
 
     final messages = <Map<String, String>>[

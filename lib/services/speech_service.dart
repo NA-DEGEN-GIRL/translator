@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart' show kIsWeb, debugPrint;
 import 'package:speech_to_text/speech_to_text.dart';
 import 'package:flutter_tts/flutter_tts.dart';
+import '../models/language.dart';
 
 class SpeechService {
   final SpeechToText _stt = SpeechToText();
@@ -119,12 +120,17 @@ class SpeechService {
 
   bool get isListening => _stt.isListening;
 
+  String _resolveLocale(String code) {
+    return getLangByCode(code).ttsLocale;
+  }
+
   void _log(String msg) {
     debugPrint('[TTS] $msg');
   }
 
   Future<void> speak(String text, String lang, {double rate = 1.0, String gender = 'female'}) async {
-    final locale = lang.contains('-') ? lang : '$lang-${lang.toUpperCase()}';
+    // Use proper locale from language model (e.g. ko→ko-KR, ja→ja-JP)
+    final locale = lang.contains('-') ? lang : _resolveLocale(lang);
     await _tts.setLanguage(locale);
 
     // Android: flutter_tts internally multiplies rate by 2x
