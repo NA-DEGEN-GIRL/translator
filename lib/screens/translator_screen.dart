@@ -166,34 +166,27 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     );
   }
 
-  String _detectLang(String text) {
-    // Detect by unicode ranges
+  String? _detectLang(String text) {
+    // Detect by unicode ranges. Returns null if undetectable (Latin etc.)
     final scores = <String, int>{};
     for (final ch in text.runes) {
-      // Korean
       if ((ch >= 0xAC00 && ch <= 0xD7AF) || (ch >= 0x1100 && ch <= 0x11FF) || (ch >= 0x3130 && ch <= 0x318F)) {
         scores['ko'] = (scores['ko'] ?? 0) + 1;
       }
-      // Japanese (hiragana/katakana)
       if ((ch >= 0x3040 && ch <= 0x309F) || (ch >= 0x30A0 && ch <= 0x30FF)) {
         scores['ja'] = (scores['ja'] ?? 0) + 1;
       }
-      // CJK ideographs — could be Chinese or Japanese
       if (ch >= 0x4E00 && ch <= 0x9FFF) {
         scores['zh'] = (scores['zh'] ?? 0) + 1;
-        scores['ja'] = (scores['ja'] ?? 0) + 1; // shared
+        scores['ja'] = (scores['ja'] ?? 0) + 1;
       }
-      // Cyrillic → Russian
       if ((ch >= 0x0400 && ch <= 0x04FF)) {
         scores['ru'] = (scores['ru'] ?? 0) + 1;
       }
-      // Vietnamese diacritics are Latin-based, hard to detect by unicode alone
-      // German/French/English are all Latin — fallback to source lang
     }
 
-    if (scores.isEmpty) return _sourceLang; // default
+    if (scores.isEmpty) return null; // undetectable (Latin, etc.)
 
-    // Return highest scoring language
     final best = scores.entries.reduce((a, b) => a.value > b.value ? a : b);
     return best.key;
   }
@@ -460,9 +453,9 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
       // Auto-detect language, fallback to toggle direction
       final detected = _detectLang(text);
       String direction;
-      if (detected == _sourceLang) {
+      if (detected != null && detected == _sourceLang) {
         direction = 'source2target';
-      } else if (detected == _targetLang) {
+      } else if (detected != null && detected == _targetLang) {
         direction = 'target2source';
       } else {
         direction = _textDirection; // fallback for Latin/undetectable
@@ -778,6 +771,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
         return ChatBubble(
           message: msg,
           fontSize: _fontSize,
+          sourceLang: _sourceLang,
           onReplay: () => _replayMessage(msg),
         );
       },
