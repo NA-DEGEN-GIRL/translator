@@ -227,7 +227,25 @@ HARD RULES
     onEvent(type, event);
   }
 
+  bool _aiHold = false; // AI mode hold — prevents auto unmute
+
+  void enterAIHold() {
+    _aiHold = true;
+    _cancelUnmuteWatchdog();
+    _localTrack?.enabled = false;
+    // Cancel any ongoing response
+    if (currentResponseId != null && _dc?.state == RTCDataChannelState.RTCDataChannelOpen) {
+      _dc!.send(RTCDataChannelMessage(jsonEncode({'type': 'response.cancel'})));
+    }
+  }
+
+  void exitAIHold() {
+    _aiHold = false;
+    _localTrack?.enabled = true;
+  }
+
   void muteMic(bool mute) {
+    if (_aiHold) return; // Don't auto-unmute during AI hold
     _localTrack?.enabled = !mute;
     if (mute) {
       _startUnmuteWatchdog();
@@ -239,7 +257,7 @@ HARD RULES
   void _startUnmuteWatchdog() {
     _cancelUnmuteWatchdog();
     _unmuteWatchdog = Timer(const Duration(seconds: 5), () {
-      if (_active) {
+      if (_active && !_aiHold) {
         _localTrack?.enabled = true;
         onEvent('watchdog_unmute', {});
       }
@@ -252,9 +270,10 @@ HARD RULES
   }
 
   void _safeUnmute() {
+    if (_aiHold) return; // Don't auto-unmute during AI hold
     _cancelUnmuteWatchdog();
     Future.delayed(const Duration(milliseconds: 500), () {
-      if (_active) _localTrack?.enabled = true;
+      if (_active && !_aiHold) _localTrack?.enabled = true;
     });
   }
 

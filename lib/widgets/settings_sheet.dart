@@ -17,6 +17,8 @@ class SettingsSheet extends StatelessWidget {
   final int pauseSeconds;
   final double noiseThreshold;
   final double vadThreshold;
+  final String aiModel;
+  final ValueChanged<String> onAiModelChanged;
   final ValueChanged<String> onModeChanged;
   final ValueChanged<String> onModelChanged;
   final ValueChanged<String> onRealtimeModelChanged;
@@ -51,6 +53,8 @@ class SettingsSheet extends StatelessWidget {
     required this.pauseSeconds,
     required this.noiseThreshold,
     required this.vadThreshold,
+    required this.aiModel,
+    required this.onAiModelChanged,
     required this.onModeChanged,
     required this.onModelChanged,
     required this.onRealtimeModelChanged,
@@ -171,6 +175,13 @@ class SettingsSheet extends StatelessWidget {
                   'gpt-5.4-mini': '5.4-mini',
                   'gpt-5.4': '5.4',
                 }, onModelChanged),
+              _dropdownTile('AI 모델', aiModel, {
+                'gpt-4.1-nano': '4.1-nano',
+                'gpt-4.1-mini': '4.1-mini',
+                'gpt-5.4-nano': '5.4-nano',
+                'gpt-5.4-mini': '5.4-mini',
+                'gpt-5.4': '5.4',
+              }, onAiModelChanged),
               const SizedBox(height: 12),
 
               // === 음성 출력 ===

@@ -47,9 +47,10 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
 
   // Settings
   String _textDirection = 'source2target'; // for text input
-  bool _aiMode = false; // AI assistant mode (separate from translation)
+  bool _aiMode = false;
   String _mode = 'browser'; // browser, openai, realtime
   String _model = 'gpt-5.4-nano';
+  String _aiModel = 'gpt-5.4-mini'; // AI assistant model (separate)
   String _sourceLang = 'ko';
   String _targetLang = 'ja';
   String _displayMode = 'face'; // 'face' (대면) or 'one' (단방향)
@@ -97,6 +98,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
       _fontSize = prefs.getDouble('fontSize') ?? 16;
       _mode = prefs.getString('mode') ?? 'browser';
       _model = prefs.getString('model') ?? 'gpt-5.4-nano';
+      _aiModel = prefs.getString('aiModel') ?? 'gpt-5.4-mini';
       _ttsSpeed = prefs.getDouble('ttsSpeed') ?? 1.0;
       _pauseSeconds = prefs.getInt('pauseSeconds') ?? 3;
       _realtimeModel = prefs.getString('realtimeModel') ?? 'gpt-realtime-mini';
@@ -118,6 +120,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     prefs.setDouble('fontSize', _fontSize);
     prefs.setString('mode', _mode);
     prefs.setString('model', _model);
+    prefs.setString('aiModel', _aiModel);
     prefs.setDouble('ttsSpeed', _ttsSpeed);
     prefs.setInt('pauseSeconds', _pauseSeconds);
     prefs.setString('realtimeModel', _realtimeModel);
@@ -147,6 +150,8 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
         pauseSeconds: _pauseSeconds,
         noiseThreshold: _noiseThreshold,
         vadThreshold: _vadThreshold,
+        aiModel: _aiModel,
+        onAiModelChanged: (v) { setState(() => _aiModel = v); setSheetState((){}); _saveSettings(); },
         onModeChanged: (v) { setState(() => _mode = v); setSheetState((){}); _saveSettings(); },
         onModelChanged: (v) { setState(() => _model = v); setSheetState((){}); _saveSettings(); },
         onRealtimeModelChanged: (v) { setState(() => _realtimeModel = v); setSheetState((){}); _saveSettings(); },
@@ -508,7 +513,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
         return <String, String>{'content': '${m.direction}: ${m.original} → ${m.translated}'};
       }).toList();
 
-      final answer = await _openai.askAssistant(question, conversationContext: ctx, model: _model);
+      final answer = await _openai.askAssistant(question, conversationContext: ctx, model: _aiModel);
 
       if (mounted) {
         setState(() {
@@ -941,11 +946,15 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
           // AI toggle
           GestureDetector(
             onTap: () {
-              if (_mode == 'realtime' && _realtimeActive) {
-                _showError('Realtime 중에는 AI 모드를 사용할 수 없습니다');
-                return;
-              }
               setState(() => _aiMode = !_aiMode);
+              // Realtime: enter/exit AI hold
+              if (_realtimeActive && _realtime != null) {
+                if (_aiMode) {
+                  _realtime!.enterAIHold();
+                } else {
+                  _realtime!.exitAIHold();
+                }
+              }
             },
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 6),
@@ -992,13 +1001,37 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
             onTap: _sendText,
           ),
           const SizedBox(width: 4),
-          if (_mode == 'realtime') ...[
-            // Realtime: single mic button
+          if (_mode == 'realtime' && !_aiMode) ...[
+            // Realtime: single mic button (translation mode)
             _buildCircleButton(
               icon: Icons.mic,
               size: 36,
               color: _realtimeActive ? Colors.red : const Color(0xFF4A90D9),
               onTap: () => _realtimeActive ? _stopRealtime() : _startRealtime(),
+            ),
+          ] else if (_mode == 'realtime' && _aiMode) ...[
+            // Realtime + AI mode: use browser STT for AI question
+            _buildLangMicButton(
+              langCode: 'AI',
+              color: const Color(0xFF8B5CF6),
+              isActive: _isListening,
+              onTap: () {
+                if (_isListening) {
+                  _stopListening();
+                } else {
+                  setState(() => _micLang = _sourceLang);
+                  _startListening();
+                }
+              },
+            ),
+            const SizedBox(width: 3),
+            // Still show realtime toggle
+            _buildCircleButton(
+              icon: Icons.translate,
+              size: 28,
+              color: _realtimeActive ? Colors.green : Colors.grey,
+              onTap: () => _realtimeActive ? _stopRealtime() : _startRealtime(),
+              outlined: !_realtimeActive,
             ),
           ] else ...[
             // Source language mic (purple when AI mode)
