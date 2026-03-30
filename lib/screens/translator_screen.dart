@@ -103,7 +103,8 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
       _voiceSource = prefs.getString('voiceSource') ?? 'nova';
       _voiceTarget = prefs.getString('voiceTarget') ?? 'onyx';
       _fontSize = prefs.getDouble('fontSize') ?? 16;
-      _mode = prefs.getString('mode') ?? 'openai';
+      final savedMode = prefs.getString('mode') ?? 'openai';
+      _mode = (savedMode == 'browser') ? 'openai' : savedMode; // migrate legacy
       _model = prefs.getString('model') ?? 'gpt-5.4-nano';
       _aiModel = prefs.getString('aiModel') ?? 'gpt-5.4-mini';
       _aiPauseSeconds = prefs.getInt('aiPauseSeconds') ?? 5;
@@ -1093,14 +1094,8 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
 
     setState(() => _micLang = lang);
 
-    // AI mode always uses OpenAI STT (record + Whisper)
-    // Ping-Pong mode also uses OpenAI STT
-    // Browser mode (legacy) uses browser STT
-    if (_aiMode || _mode == 'openai') {
-      _startOpenAIRecording(forceDirection: _aiMode ? null : direction);
-    } else {
-      _startListening();
-    }
+    // All modes use OpenAI STT (record + Whisper)
+    _startOpenAIRecording(forceDirection: _aiMode ? null : direction);
   }
 
   Widget _buildCircleButton({
