@@ -92,13 +92,25 @@ class SettingsSheet extends StatelessWidget {
               Center(
                 child: Container(
                   width: 40, height: 4,
-                  margin: const EdgeInsets.only(bottom: 12),
+                  margin: const EdgeInsets.only(bottom: 8),
                   decoration: BoxDecoration(
                     color: Colors.grey.shade300,
                     borderRadius: BorderRadius.circular(2),
                   ),
                 ),
               ),
+              // Header with close button
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('설정', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                  TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('닫기'),
+                  ),
+                ],
+              ),
+              const Divider(height: 8),
 
               // === 언어 ===
               _sectionTitle('언어'),

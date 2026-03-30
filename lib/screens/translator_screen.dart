@@ -128,7 +128,8 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => SettingsSheet(
+      builder: (_) => StatefulBuilder(
+        builder: (ctx, setSheetState) => SettingsSheet(
         mode: _mode,
         model: _model,
         realtimeModel: _realtimeModel,
@@ -144,23 +145,23 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
         pauseSeconds: _pauseSeconds,
         noiseThreshold: _noiseThreshold,
         vadThreshold: _vadThreshold,
-        onModeChanged: (v) { setState(() => _mode = v); _saveSettings(); Navigator.pop(context); },
-        onModelChanged: (v) { setState(() => _model = v); _saveSettings(); },
-        onRealtimeModelChanged: (v) { setState(() => _realtimeModel = v); _saveSettings(); },
-        onSourceLangChanged: (v) { setState(() { _sourceLang = v; _micLang = v; }); _saveSettings(); },
-        onTargetLangChanged: (v) { setState(() => _targetLang = v); _saveSettings(); },
-        onDisplayModeChanged: (v) { setState(() => _displayMode = v); _saveSettings(); },
-        onTtsSourceChanged: (v) { setState(() => _ttsSourceEnabled = v); _saveSettings(); _updateRealtimeAudioMute(); },
-        onTtsTargetChanged: (v) { setState(() => _ttsTargetEnabled = v); _saveSettings(); _updateRealtimeAudioMute(); },
-        onVoiceSourceChanged: (v) { setState(() => _voiceSource = v); _saveSettings(); },
-        onVoiceTargetChanged: (v) { setState(() => _voiceTarget = v); _saveSettings(); },
-        onFontSizeChanged: (v) { setState(() => _fontSize = v); _saveSettings(); },
-        onTtsSpeedChanged: (v) { setState(() => _ttsSpeed = v); _saveSettings(); },
-        onPauseSecondsChanged: (v) { setState(() => _pauseSeconds = v); _saveSettings(); },
-        onNoiseThresholdChanged: (v) { setState(() => _noiseThreshold = v); _saveSettings(); },
-        onVadThresholdChanged: (v) { setState(() => _vadThreshold = v); _saveSettings(); },
+        onModeChanged: (v) { setState(() => _mode = v); setSheetState((){}); _saveSettings(); },
+        onModelChanged: (v) { setState(() => _model = v); setSheetState((){}); _saveSettings(); },
+        onRealtimeModelChanged: (v) { setState(() => _realtimeModel = v); setSheetState((){}); _saveSettings(); },
+        onSourceLangChanged: (v) { setState(() { _sourceLang = v; _micLang = v; }); setSheetState((){}); _saveSettings(); },
+        onTargetLangChanged: (v) { setState(() => _targetLang = v); setSheetState((){}); _saveSettings(); },
+        onDisplayModeChanged: (v) { setState(() => _displayMode = v); setSheetState((){}); _saveSettings(); },
+        onTtsSourceChanged: (v) { setState(() => _ttsSourceEnabled = v); setSheetState((){}); _saveSettings(); _updateRealtimeAudioMute(); },
+        onTtsTargetChanged: (v) { setState(() => _ttsTargetEnabled = v); setSheetState((){}); _saveSettings(); _updateRealtimeAudioMute(); },
+        onVoiceSourceChanged: (v) { setState(() => _voiceSource = v); setSheetState((){}); _saveSettings(); },
+        onVoiceTargetChanged: (v) { setState(() => _voiceTarget = v); setSheetState((){}); _saveSettings(); },
+        onFontSizeChanged: (v) { setState(() => _fontSize = v); setSheetState((){}); _saveSettings(); },
+        onTtsSpeedChanged: (v) { setState(() => _ttsSpeed = v); setSheetState((){}); _saveSettings(); },
+        onPauseSecondsChanged: (v) { setState(() => _pauseSeconds = v); setSheetState((){}); _saveSettings(); },
+        onNoiseThresholdChanged: (v) { setState(() => _noiseThreshold = v); setSheetState((){}); _saveSettings(); },
+        onVadThresholdChanged: (v) { setState(() => _vadThreshold = v); setSheetState((){}); _saveSettings(); },
         onResetApiKey: () { Navigator.pop(context); _resetApiKey(); },
-      ),
+      )),
     );
   }
 
@@ -221,16 +222,40 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
       translated = result['translated'] ?? '';
       backTranslation = result['back_translation'];
 
+      final msgDir = direction == 'source2target' ? '${_sourceLang}2${_targetLang}' : '${_targetLang}2${_sourceLang}';
+      final msg = ChatMessage(
+        original: text,
+        translated: translated,
+        backTranslation: null,
+        direction: msgDir,
+      );
+
       if (mounted) {
-        setState(() {
-          _messages.add(ChatMessage(
-            original: text,
-            translated: translated,
-            backTranslation: null,
-            direction: direction == 'source2target' ? '${_sourceLang}2${_targetLang}' : '${_targetLang}2${_sourceLang}',
-          ));
-        });
+        setState(() => _messages.add(msg));
         _scrollToBottom();
+      }
+
+      // Async back-translation for verification
+      if (translated.isNotEmpty && mounted) {
+        final btSrcName = direction == 'source2target' ? tgtName : srcName;
+        final btTgtName = direction == 'source2target' ? srcName : tgtName;
+        _openai.translate(translated, sourceLang: btSrcName, targetLang: btTgtName, model: _model).then((r) {
+          if (!mounted) return;
+          final bt = r['translated'] ?? '';
+          if (bt.isNotEmpty) {
+            setState(() {
+              final idx = _messages.indexOf(msg);
+              if (idx >= 0) {
+                _messages[idx] = ChatMessage(
+                  original: msg.original,
+                  translated: msg.translated,
+                  backTranslation: bt,
+                  direction: msg.direction,
+                );
+              }
+            });
+          }
+        }).catchError((_) {});
       }
     } catch (e) {
       if (mounted) _showError(e.toString());
@@ -238,7 +263,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
       if (mounted) setState(() => _isProcessing = false);
     }
 
-    // TTS after processing flag released — doesn't block next input
+    // TTS after processing flag released
     if (translated.isNotEmpty) {
       final ttsLangCode = direction == 'source2target' ? _targetLang : _sourceLang;
       final shouldPlay = direction == 'source2target' ? _ttsTargetEnabled : _ttsSourceEnabled;
