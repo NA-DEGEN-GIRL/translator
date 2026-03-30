@@ -657,6 +657,8 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
       apiKey: widget.apiKey,
       model: _realtimeModel,
       voice: _voiceTarget == 'onyx' ? 'ash' : 'coral',
+      sourceLangCode: _sourceLang,
+      targetLangCode: _targetLang,
       onEvent: _handleRealtimeEvent,
     );
 

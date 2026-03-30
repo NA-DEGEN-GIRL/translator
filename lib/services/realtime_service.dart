@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:http/http.dart' as http;
+import '../models/language.dart';
 
 class RealtimeTurn {
   String input = '';
@@ -12,6 +13,8 @@ class RealtimeService {
   final String apiKey;
   final String model;
   final String voice;
+  final String sourceLangCode;
+  final String targetLangCode;
   final void Function(String type, Map<String, dynamic> event) onEvent;
 
   RTCPeerConnection? _pc;
@@ -23,7 +26,6 @@ class RealtimeService {
   bool _active = false;
   Timer? _unmuteWatchdog;
 
-  // Turn tracking
   final Map<String, RealtimeTurn> turns = {};
   String? currentResponseId;
   String lastUserTranscript = '';
@@ -32,18 +34,24 @@ class RealtimeService {
     required this.apiKey,
     this.model = 'gpt-realtime-mini',
     this.voice = 'ash',
+    this.sourceLangCode = 'ko',
+    this.targetLangCode = 'ja',
     required this.onEvent,
   });
 
   bool get isActive => _active;
   MediaStream? get remoteStream => _remoteStream;
 
-  static const _systemPrompt = '''You are a strict translation engine.
+  String _buildSystemPrompt() {
+    final src = getLangByCode(sourceLangCode);
+    final tgt = getLangByCode(targetLangCode);
+
+    return '''You are a strict translation engine.
 
 TASK
-- Translate Korean <-> Japanese only.
-- Korean input -> Japanese output only.
-- Japanese input -> Korean output only.
+- Translate ${src.name} <-> ${tgt.name} only.
+- ${src.name} input -> ${tgt.name} output only.
+- ${tgt.name} input -> ${src.name} output only.
 
 HARD RULES
 - DO NOT answer the user.
@@ -53,20 +61,12 @@ HARD RULES
 - Preserve sentence type: question -> question, statement -> statement, command -> command.
 - Preserve meaning, tone, and intent as literally as natural.
 - Output translation only. No quotes. No labels. No extra words.
-- If input is unclear, noise-only, or incomplete, output nothing.
-
-EXAMPLES
-- 안녕하세요 -> こんにちは
-- こんにちは -> 안녕하세요
-- 일본어 할 줄 알아요? -> 日本語はできますか？
-- 日本語が話せますか？ -> 일본어 할 수 있어요?
-- 日本人ですか？ -> 일본인인가요?
-- 일본인입니다 -> 日本人です''';
+- If input is unclear, noise-only, or incomplete, output nothing.''';
+  }
 
   Future<void> start() async {
     if (_active) return;
 
-    // 1. Get ephemeral token
     final tokenRes = await http.post(
       Uri.parse('https://api.openai.com/v1/realtime/client_secrets'),
       headers: {
@@ -78,7 +78,7 @@ EXAMPLES
           'type': 'realtime',
           'model': model,
           'audio': {'output': {'voice': voice}},
-          'instructions': _systemPrompt,
+          'instructions': _buildSystemPrompt(),
         }
       }),
     );
@@ -90,12 +90,10 @@ EXAMPLES
     final tokenData = jsonDecode(tokenRes.body);
     final ephemeralKey = tokenData['value'] as String;
 
-    // 2. Create peer connection
     _pc = await createPeerConnection({
       'iceServers': [{'urls': 'stun:stun.l.google.com:19302'}],
     });
 
-    // 3. Remote audio — use RTCVideoRenderer for playback
     _remoteRenderer = RTCVideoRenderer();
     await _remoteRenderer!.initialize();
 
@@ -107,17 +105,14 @@ EXAMPLES
       }
     };
 
-    // 4. Connection state
     _pc!.onConnectionState = (state) {
       if (state == RTCPeerConnectionState.RTCPeerConnectionStateDisconnected ||
           state == RTCPeerConnectionState.RTCPeerConnectionStateFailed ||
           state == RTCPeerConnectionState.RTCPeerConnectionStateClosed) {
-        // Only notify — let UI call stop() to avoid double cleanup
         onEvent('connection_lost', {});
       }
     };
 
-    // 5. Local audio with echo cancellation
     _localStream = await navigator.mediaDevices.getUserMedia({
       'audio': {
         'echoCancellation': true,
@@ -128,7 +123,6 @@ EXAMPLES
     _localTrack = _localStream!.getAudioTracks().first;
     _pc!.addTrack(_localTrack!, _localStream!);
 
-    // 6. Data channel
     _dc = await _pc!.createDataChannel('oai-events', RTCDataChannelInit());
     _dc!.onMessage = (msg) {
       try {
@@ -137,7 +131,6 @@ EXAMPLES
       } catch (_) {}
     };
 
-    // 7. SDP exchange
     final offer = await _pc!.createOffer();
     await _pc!.setLocalDescription(offer);
 
@@ -166,7 +159,6 @@ EXAMPLES
 
     switch (type) {
       case 'input_audio_buffer.speech_started':
-        // Cancel ongoing response
         if (currentResponseId != null) {
           _dc?.send(RTCDataChannelMessage(jsonEncode({'type': 'response.cancel'})));
         }
@@ -216,7 +208,6 @@ EXAMPLES
           currentResponseId = null;
           lastUserTranscript = '';
         }
-        // Unmute on cancelled/failed/incomplete
         final status = event['response']?['status'] as String?;
         if (status != null && status != 'completed') {
           _safeUnmute();
@@ -227,9 +218,9 @@ EXAMPLES
         final errMsg = event['error']?['message'] ?? '';
         if (errMsg.toString().contains('no active response') ||
             errMsg.toString().contains('unknown_parameter')) {
-          return; // ignore non-critical
+          return;
         }
-        _safeUnmute(); // ensure mic is restored on error
+        _safeUnmute();
         break;
     }
 
@@ -248,7 +239,6 @@ EXAMPLES
   void _startUnmuteWatchdog() {
     _cancelUnmuteWatchdog();
     _unmuteWatchdog = Timer(const Duration(seconds: 5), () {
-      // Failsafe: if no unmute event came in 5 seconds, force unmute
       if (_active) {
         _localTrack?.enabled = true;
         onEvent('watchdog_unmute', {});
@@ -269,7 +259,6 @@ EXAMPLES
   }
 
   void muteAudio(bool mute) {
-    // Mute/unmute remote audio output
     if (_remoteStream != null) {
       for (final track in _remoteStream!.getAudioTracks()) {
         track.enabled = !mute;
