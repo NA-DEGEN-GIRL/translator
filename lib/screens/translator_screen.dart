@@ -718,16 +718,19 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
         final rid = event['response']?['id'] as String?;
         final turn = rid != null ? _realtime!.turns[rid] : null;
         if (turn != null && turn.output.isNotEmpty) {
-          // Realtime: input = what I said, output = AI's translated speech transcript
+          // Realtime: output = AI's translated speech transcript
           // Detect output language to determine direction
           final outputLang = _detectLangSimple(turn.output);
-          // If output matches source lang, AI didn't translate (echoed) — swap
           final didTranslate = outputLang != null && outputLang != _sourceLang;
           final direction = didTranslate
               ? '${_sourceLang}2${_targetLang}'
               : '${_targetLang}2${_sourceLang}';
+
+          // For display: translated text is the output, original needs to be reconstructed
+          // turn.input = transcript of what was said (in source lang)
+          // turn.output = AI's translation (in target lang)
           final msg = ChatMessage(
-            original: turn.input.isNotEmpty ? turn.input : '(음성 입력)',
+            original: turn.input.isNotEmpty ? turn.input : turn.output,
             translated: turn.output,
             direction: direction,
           );
@@ -738,18 +741,20 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
           });
           _scrollToBottom();
 
-          // Back-translation only if no input transcript available
-          if (turn.input.isEmpty) {
-            final tgtName = getLangByCode(_targetLang).name;
-            final srcName = getLangByCode(_sourceLang).name;
-            _openai.translate(turn.output, sourceLang: tgtName, targetLang: srcName, model: _model).then((r) {
+          // Always fetch reverse translation for the "original" line
+          // This gives us the input in the source language for display
+          {
+            // Reverse: translate output back to figure out what was originally said
+            final fromName = getLangByCode(didTranslate ? _targetLang : _sourceLang).name;
+            final toName = getLangByCode(didTranslate ? _sourceLang : _targetLang).name;
+            _openai.translate(turn.output, sourceLang: fromName, targetLang: toName, model: _model).then((r) {
               if (!mounted) return;
               if (r['translated']?.isNotEmpty ?? false) {
                 setState(() {
                   final idx = _messages.indexOf(msg);
                   if (idx >= 0) {
                     _messages[idx] = ChatMessage(
-                      original: r['translated']!,
+                      original: turn.input.isNotEmpty ? turn.input : r['translated']!,
                       translated: msg.translated,
                       backTranslation: r['translated'],
                       direction: msg.direction,
