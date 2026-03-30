@@ -28,12 +28,15 @@ class ChatBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isKo = message.direction == 'ko2ja';
-    final color = isKo ? const Color(0xFF4A90D9) : const Color(0xFFE85D75);
-    final label = isKo ? 'KO→JA' : 'JA→KO';
+    final parts = message.direction.split('2');
+    final isSource = parts.length == 2 && parts[0] == parts[0]; // always true, use for color
+    final label = parts.length == 2
+        ? '${parts[0].toUpperCase()}→${parts[1].toUpperCase()}'
+        : message.direction;
+    final color = const Color(0xFF4A90D9);
 
     return Align(
-      alignment: isKo ? Alignment.centerLeft : Alignment.centerRight,
+      alignment: Alignment.centerLeft,
       child: Container(
         constraints: BoxConstraints(
           maxWidth: MediaQuery.of(context).size.width * 0.85,
@@ -45,8 +48,8 @@ class ChatBubble extends StatelessWidget {
           borderRadius: BorderRadius.only(
             topLeft: const Radius.circular(14),
             topRight: const Radius.circular(14),
-            bottomLeft: Radius.circular(isKo ? 4 : 14),
-            bottomRight: Radius.circular(isKo ? 14 : 4),
+            bottomLeft: const Radius.circular(4),
+            bottomRight: const Radius.circular(14),
           ),
         ),
         child: Column(

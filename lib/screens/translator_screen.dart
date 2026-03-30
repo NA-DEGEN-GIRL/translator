@@ -283,17 +283,21 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
       _interimText = '';
     });
 
+    final sttLocale = getLangByCode(_micLang).sttLocale;
+    final direction = _micLang == _sourceLang ? 'source2target' : 'target2source';
+
     await _speech.startListening(
-      locale: _micLang == 'ko' ? 'ko_KR' : 'ja_JP',
+      locale: sttLocale,
       pauseSeconds: _pauseSeconds,
       onResult: (text, isFinal) {
+        if (!mounted) return;
         setState(() => _interimText = text);
         if (isFinal && text.isNotEmpty) {
           _stopListening();
-          _handleTranslation(text);
+          _handleTranslation(text, forceDirection: direction);
         }
       },
-      onDone: () => setState(() => _isListening = false),
+      onDone: () { if (mounted) setState(() => _isListening = false); },
     );
   }
 
@@ -834,54 +838,30 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
             onTap: _sendText,
           ),
           const SizedBox(width: 4),
-          // Mic
-          _buildCircleButton(
-            icon: Icons.mic,
-            size: 36,
-            color: (_isListening || _realtimeActive || _isRecording) ? Colors.red : const Color(0xFF4A90D9),
-            onTap: () {
-              if (_mode == 'realtime') {
-                _realtimeActive ? _stopRealtime() : _startRealtime();
-              } else if (_mode == 'openai') {
-                _isRecording ? _stopOpenAIRecording() : _startOpenAIRecording();
-              } else {
-                _isListening ? _stopListening() : _startListening();
-              }
-            },
-          ),
-          if (_mode != 'realtime') ...[
-          const SizedBox(width: 4),
-          // Language toggle
-          GestureDetector(
-            onTap: () {
-              if (_isListening) return;
-              setState(() => _micLang = _micLang == 'ko' ? 'ja' : 'ko');
-            },
-            child: Container(
-              width: 28,
-              height: 36,
-              decoration: BoxDecoration(
-                border: Border.all(
-                  color: _micLang == 'ko'
-                      ? const Color(0xFF4A90D9)
-                      : const Color(0xFFE85D75),
-                  width: 2,
-                ),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              alignment: Alignment.center,
-              child: Text(
-                _micLang.toUpperCase(),
-                style: TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.bold,
-                  color: _micLang == 'ko'
-                      ? const Color(0xFF4A90D9)
-                      : const Color(0xFFE85D75),
-                ),
-              ),
+          if (_mode == 'realtime') ...[
+            // Realtime: single mic button
+            _buildCircleButton(
+              icon: Icons.mic,
+              size: 36,
+              color: _realtimeActive ? Colors.red : const Color(0xFF4A90D9),
+              onTap: () => _realtimeActive ? _stopRealtime() : _startRealtime(),
             ),
-          ),
+          ] else ...[
+            // Source language mic
+            _buildLangMicButton(
+              langCode: _sourceLang,
+              color: const Color(0xFF4A90D9),
+              isActive: (_isListening || _isRecording) && _micLang == _sourceLang,
+              onTap: () => _handleMicTap(_sourceLang, 'source2target'),
+            ),
+            const SizedBox(width: 3),
+            // Target language mic
+            _buildLangMicButton(
+              langCode: _targetLang,
+              color: const Color(0xFFE85D75),
+              isActive: (_isListening || _isRecording) && _micLang == _targetLang,
+              onTap: () => _handleMicTap(_targetLang, 'target2source'),
+            ),
           ],
           const SizedBox(width: 4),
           // Settings toggle
@@ -895,6 +875,55 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
         ],
       ),
     );
+  }
+
+  Widget _buildLangMicButton({
+    required String langCode,
+    required Color color,
+    required bool isActive,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 40,
+        height: 36,
+        decoration: BoxDecoration(
+          color: isActive ? Colors.red : color,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.mic, size: 16, color: Colors.white),
+            Text(
+              langCode.toUpperCase(),
+              style: const TextStyle(fontSize: 8, fontWeight: FontWeight.bold, color: Colors.white),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _handleMicTap(String lang, String direction) {
+    // If already listening/recording in this language, stop
+    if ((_isListening || _isRecording) && _micLang == lang) {
+      if (_isRecording) {
+        _stopOpenAIRecording(forceDirection: direction);
+      } else {
+        _stopListening();
+      }
+      return;
+    }
+
+    // Start listening in the selected language
+    setState(() => _micLang = lang);
+    if (_mode == 'openai') {
+      _startOpenAIRecording(forceDirection: direction);
+    } else {
+      _startListening();
+    }
   }
 
   Widget _buildCircleButton({
@@ -990,7 +1019,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
                                 ),
                                 const SizedBox(width: 8),
                                 Text(
-                                  '押して話す→翻訳',
+                                  '${getLangByCode(_targetLang).name}→${getLangByCode(_sourceLang).name}',
                                   style: TextStyle(fontSize: 10, color: Colors.grey),
                                 ),
                               ],
