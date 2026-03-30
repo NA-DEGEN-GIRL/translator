@@ -50,7 +50,8 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
   bool _aiMode = false;
   String _mode = 'browser'; // browser, openai, realtime
   String _model = 'gpt-5.4-nano';
-  String _aiModel = 'gpt-5.4-mini'; // AI assistant model (separate)
+  String _aiModel = 'gpt-5.4-mini';
+  int _aiPauseSeconds = 5; // AI mode silence timeout (longer than translation)
   String _sourceLang = 'ko';
   String _targetLang = 'ja';
   String _displayMode = 'face'; // 'face' (대면) or 'one' (단방향)
@@ -99,6 +100,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
       _mode = prefs.getString('mode') ?? 'browser';
       _model = prefs.getString('model') ?? 'gpt-5.4-nano';
       _aiModel = prefs.getString('aiModel') ?? 'gpt-5.4-mini';
+      _aiPauseSeconds = prefs.getInt('aiPauseSeconds') ?? 5;
       _ttsSpeed = prefs.getDouble('ttsSpeed') ?? 1.0;
       _pauseSeconds = prefs.getInt('pauseSeconds') ?? 3;
       _realtimeModel = prefs.getString('realtimeModel') ?? 'gpt-realtime-mini';
@@ -121,6 +123,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     prefs.setString('mode', _mode);
     prefs.setString('model', _model);
     prefs.setString('aiModel', _aiModel);
+    prefs.setInt('aiPauseSeconds', _aiPauseSeconds);
     prefs.setDouble('ttsSpeed', _ttsSpeed);
     prefs.setInt('pauseSeconds', _pauseSeconds);
     prefs.setString('realtimeModel', _realtimeModel);
@@ -151,7 +154,9 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
         noiseThreshold: _noiseThreshold,
         vadThreshold: _vadThreshold,
         aiModel: _aiModel,
+        aiPauseSeconds: _aiPauseSeconds,
         onAiModelChanged: (v) { setState(() => _aiModel = v); setSheetState((){}); _saveSettings(); },
+        onAiPauseSecondsChanged: (v) { setState(() => _aiPauseSeconds = v); setSheetState((){}); _saveSettings(); },
         onModeChanged: (v) { setState(() => _mode = v); setSheetState((){}); _saveSettings(); },
         onModelChanged: (v) { setState(() => _model = v); setSheetState((){}); _saveSettings(); },
         onRealtimeModelChanged: (v) { setState(() => _realtimeModel = v); setSheetState((){}); _saveSettings(); },
@@ -331,7 +336,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
 
     await _speech.startListening(
       locale: sttLocale,
-      pauseSeconds: _pauseSeconds,
+      pauseSeconds: _aiMode ? _aiPauseSeconds : _pauseSeconds,
       onResult: (text, isFinal) {
         if (!mounted) return;
         setState(() => _interimText = text);
@@ -382,7 +387,8 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
       if (_pauseSeconds < 30) {
         _ampSub = _recorder.onAmplitudeChanged(const Duration(milliseconds: 200)).listen((amp) {
           if (amp.current < _noiseThreshold) {
-            _silenceTimer ??= Timer(Duration(seconds: _pauseSeconds), () {
+            final timeout = _aiMode ? _aiPauseSeconds : _pauseSeconds;
+            _silenceTimer ??= Timer(Duration(seconds: timeout), () {
               if (_isMirrorListening) _stopMirrorListening();
             });
           } else {
@@ -683,6 +689,10 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
         _interimText = 'Realtime 활성 — 말하세요';
       });
       _updateRealtimeAudioMute();
+      // If AI mode is active, enter hold immediately
+      if (_aiMode) {
+        _realtime!.enterAIHold();
+      }
     } catch (e) {
       await _realtime?.stop();
       _showError(e.toString());
