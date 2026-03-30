@@ -605,13 +605,16 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
   }
 
   // ===== Realtime =====
-  String _detectLangSimple(String text) {
-    int ko = 0, ja = 0;
+  String? _detectLangSimple(String text) {
+    final scores = <String, int>{};
     for (final ch in text.runes) {
-      if ((ch >= 0xAC00 && ch <= 0xD7AF)) ko++;
-      if ((ch >= 0x3040 && ch <= 0x309F) || (ch >= 0x30A0 && ch <= 0x30FF)) ja++;
+      if ((ch >= 0xAC00 && ch <= 0xD7AF)) scores['ko'] = (scores['ko'] ?? 0) + 1;
+      if ((ch >= 0x3040 && ch <= 0x309F) || (ch >= 0x30A0 && ch <= 0x30FF)) scores['ja'] = (scores['ja'] ?? 0) + 1;
+      if (ch >= 0x4E00 && ch <= 0x9FFF) scores['zh'] = (scores['zh'] ?? 0) + 1;
+      if (ch >= 0x0400 && ch <= 0x04FF) scores['ru'] = (scores['ru'] ?? 0) + 1;
     }
-    return ko >= ja ? 'ko' : 'ja';
+    if (scores.isEmpty) return null;
+    return scores.entries.reduce((a, b) => a.value > b.value ? a : b).key;
   }
 
   Future<void> _startRealtime() async {
@@ -683,10 +686,16 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
         final rid = event['response']?['id'] as String?;
         final turn = rid != null ? _realtime!.turns[rid] : null;
         if (turn != null && turn.output.isNotEmpty) {
+          // Realtime: input = what I said, output = AI's translated speech transcript
+          // Detect output language to determine direction
           final outputLang = _detectLangSimple(turn.output);
-          final direction = outputLang == 'ja' ? 'ko2ja' : 'ja2ko';
+          // If output matches source lang, AI didn't translate (echoed) — swap
+          final didTranslate = outputLang != null && outputLang != _sourceLang;
+          final direction = didTranslate
+              ? '${_sourceLang}2${_targetLang}'
+              : '${_targetLang}2${_sourceLang}';
           final msg = ChatMessage(
-            original: turn.input.isNotEmpty ? turn.input : turn.output,
+            original: turn.input.isNotEmpty ? turn.input : '(음성 입력)',
             translated: turn.output,
             direction: direction,
           );
