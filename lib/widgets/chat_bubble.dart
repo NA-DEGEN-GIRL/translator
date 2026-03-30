@@ -4,13 +4,15 @@ class ChatMessage {
   final String original;
   final String translated;
   final String? backTranslation;
-  final String direction; // e.g. 'ko2ja', 'en2ko'
+  final String direction; // e.g. 'ko2ja', 'en2ko', 'ai'
+  final bool isAI; // AI assistant response
 
   ChatMessage({
     required this.original,
     required this.translated,
     this.backTranslation,
     required this.direction,
+    this.isAI = false,
   });
 }
 
@@ -30,6 +32,8 @@ class ChatBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (message.isAI) return _buildAIBubble(context);
+
     final parts = message.direction.split('2');
     final fromLang = parts.isNotEmpty ? parts[0] : '';
     final toLang = parts.length > 1 ? parts[1] : '';
@@ -144,6 +148,77 @@ class ChatBubble extends StatelessWidget {
           ],
         ),
       )),
+    );
+  }
+
+  Widget _buildAIBubble(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Question (small, right-aligned)
+          Align(
+            alignment: Alignment.centerRight,
+            child: Container(
+              constraints: BoxConstraints(
+                maxWidth: MediaQuery.of(context).size.width * 0.7,
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade200,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text(
+                message.original,
+                style: TextStyle(fontSize: fontSize * 0.75, color: Colors.grey.shade700),
+                textAlign: TextAlign.right,
+              ),
+            ),
+          ),
+          const SizedBox(height: 4),
+          // AI Answer (left-aligned, distinct style)
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Container(
+              constraints: BoxConstraints(
+                maxWidth: MediaQuery.of(context).size.width * 0.85,
+              ),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF5F3FF), // light purple
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFF8B5CF6).withOpacity(0.3)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.smart_toy, size: 14, color: const Color(0xFF8B5CF6)),
+                      const SizedBox(width: 4),
+                      Text('AI', style: TextStyle(
+                        fontSize: fontSize * 0.5,
+                        fontWeight: FontWeight.w700,
+                        color: const Color(0xFF8B5CF6),
+                      )),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  SelectableText(
+                    message.translated,
+                    style: TextStyle(
+                      fontSize: fontSize * 0.85,
+                      color: const Color(0xFF1A202C),
+                      height: 1.4,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

@@ -447,10 +447,11 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     if (text.isEmpty || _isProcessing) return;
     await _speech.warmupTts();
     _textController.clear();
-    if (_mode == 'realtime' && _realtimeActive) {
+    if (_textDirection == 'ai') {
+      _handleAIQuestion(text);
+    } else if (_mode == 'realtime' && _realtimeActive) {
       _realtime?.sendText(text);
     } else {
-      // Auto-detect language, fallback to toggle direction
       final detected = _detectLang(text);
       String direction;
       if (detected != null && detected == _sourceLang) {
@@ -458,7 +459,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
       } else if (detected != null && detected == _targetLang) {
         direction = 'target2source';
       } else {
-        direction = _textDirection; // fallback for Latin/undetectable
+        direction = _textDirection;
       }
       _handleTranslation(text, forceDirection: direction);
     }
@@ -488,6 +489,37 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
         MaterialPageRoute(builder: (_) => const ApiKeyScreen()),
         (_) => false,
       );
+    }
+  }
+
+  Future<void> _handleAIQuestion(String question) async {
+    if (question.isEmpty || _isProcessing) return;
+    setState(() => _isProcessing = true);
+
+    try {
+      // Build context from recent messages
+      final ctx = _messages.reversed.take(8).toList().reversed.map((m) {
+        if (m.isAI) return <String, String>{'content': 'Q: ${m.original}\nA: ${m.translated}'};
+        return <String, String>{'content': '${m.direction}: ${m.original} → ${m.translated}'};
+      }).toList();
+
+      final answer = await _openai.askAssistant(question, conversationContext: ctx, model: _model);
+
+      if (mounted) {
+        setState(() {
+          _messages.add(ChatMessage(
+            original: question,
+            translated: answer,
+            direction: 'ai',
+            isAI: true,
+          ));
+        });
+        _scrollToBottom();
+      }
+    } catch (e) {
+      if (mounted) _showError(e.toString());
+    } finally {
+      if (mounted) setState(() => _isProcessing = false);
     }
   }
 
@@ -867,21 +899,33 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
             outlined: true,
           ),
           const SizedBox(width: 4),
-          // Direction toggle for text input
+          // Direction toggle: source→target / target→source / AI
           GestureDetector(
             onTap: () => setState(() {
-              _textDirection = _textDirection == 'source2target' ? 'target2source' : 'source2target';
+              if (_textDirection == 'source2target') {
+                _textDirection = 'target2source';
+              } else if (_textDirection == 'target2source') {
+                _textDirection = 'ai';
+              } else {
+                _textDirection = 'source2target';
+              }
             }),
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
               decoration: BoxDecoration(
-                color: _textDirection == 'source2target' ? const Color(0xFF4A90D9) : const Color(0xFFE85D75),
+                color: _textDirection == 'source2target'
+                    ? const Color(0xFF4A90D9)
+                    : _textDirection == 'target2source'
+                        ? const Color(0xFFE85D75)
+                        : const Color(0xFF8B5CF6),
                 borderRadius: BorderRadius.circular(6),
               ),
               child: Text(
                 _textDirection == 'source2target'
                     ? '${_sourceLang.toUpperCase()}→${_targetLang.toUpperCase()}'
-                    : '${_targetLang.toUpperCase()}→${_sourceLang.toUpperCase()}',
+                    : _textDirection == 'target2source'
+                        ? '${_targetLang.toUpperCase()}→${_sourceLang.toUpperCase()}'
+                        : 'AI',
                 style: const TextStyle(fontSize: 8, fontWeight: FontWeight.bold, color: Colors.white),
               ),
             ),
