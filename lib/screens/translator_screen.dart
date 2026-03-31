@@ -80,7 +80,9 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
   bool _showPronunciation = false;
   bool _deleteConversationItems = true;
   bool _translationContext = false;
-  double _translationTemp = 0.3; // translation temperature
+  double _translationTemp = 0.3;
+  double _classifyTemp = 0.1;
+  double _pronunciationTemp = 0.3;
   PromptTemplateSet _promptTemplates = AppPrompts.defaults;
 
   @override
@@ -138,6 +140,8 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
       _deleteConversationItems = prefs.getBool('deleteConversationItems') ?? true;
       _translationContext = prefs.getBool('translationContext') ?? false;
       _translationTemp = prefs.getDouble('translationTemp') ?? 0.3;
+      _classifyTemp = prefs.getDouble('classifyTemp') ?? 0.1;
+      _pronunciationTemp = prefs.getDouble('pronunciationTemp') ?? 0.3;
       _noiseThreshold = prefs.getDouble('noiseThreshold') ?? (kIsWeb ? -60 : -30);
       _vadThreshold = prefs.getDouble('vadThreshold') ?? 0.9;
       _micLang = _sourceLang;
@@ -171,6 +175,8 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     prefs.setBool('deleteConversationItems', _deleteConversationItems);
     prefs.setBool('translationContext', _translationContext);
     prefs.setDouble('translationTemp', _translationTemp);
+    prefs.setDouble('classifyTemp', _classifyTemp);
+    prefs.setDouble('pronunciationTemp', _pronunciationTemp);
     prefs.setDouble('noiseThreshold', _noiseThreshold);
     prefs.setDouble('vadThreshold', _vadThreshold);
   }
@@ -227,6 +233,10 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
         onTranslationContextChanged: (v) { setState(() => _translationContext = v); setSheetState((){}); _saveSettings(); },
         translationTemp: _translationTemp,
         onTranslationTempChanged: (v) { setState(() => _translationTemp = v); setSheetState((){}); _saveSettings(); },
+        classifyTemp: _classifyTemp,
+        onClassifyTempChanged: (v) { setState(() => _classifyTemp = v); setSheetState((){}); _saveSettings(); },
+        pronunciationTemp: _pronunciationTemp,
+        onPronunciationTempChanged: (v) { setState(() => _pronunciationTemp = v); setSheetState((){}); _saveSettings(); },
         detectModel: _detectModel,
         backTranslateSource: _backTranslateSource,
         backTranslateTarget: _backTranslateTarget,
@@ -435,7 +445,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
                 final pronResult = await _openai.askAssistant(
                   'Write how this text sounds using Korean characters (한글로 발음 표기). Example: こんにちは → 곤니치와. Reply with ONLY the 한글 pronunciation: $textToPronounce',
                   model: 'gpt-5.4-nano',
-                  temperature: 0.3,
+                  temperature: _pronunciationTemp,
                 );
                 pron = pronResult.trim();
               } catch (_) {}
@@ -1012,7 +1022,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
           'Which language is this text? Reply with ONLY one word: $srcName or $tgtName\n\nText: $output',
           model: _detectModel,
           systemPrompt: 'You are a language classifier. The text is either $srcName or $tgtName. Reply with exactly one of these two names. No explanation.',
-          temperature: 0.1,
+          temperature: _classifyTemp,
         );
         final answer = result.trim().toLowerCase();
         if (answer.contains(tgtName.toLowerCase())) {

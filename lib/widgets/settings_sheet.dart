@@ -3,6 +3,11 @@ import '../models/language.dart';
 import '../prompts.dart';
 
 class SettingsSheet extends StatefulWidget {
+  static const _tempOptions = {
+    '0.0': '0.0', '0.1': '0.1', '0.3': '0.3',
+    '0.5': '0.5', '0.7': '0.7', '1.0': '1.0',
+  };
+
   static const _chatModels = {
     'gpt-5.4-nano': '5.4-nano',
     'gpt-5.4-mini': '5.4-mini',
@@ -54,6 +59,10 @@ class SettingsSheet extends StatefulWidget {
   final ValueChanged<bool> onTranslationContextChanged;
   final double translationTemp;
   final ValueChanged<double> onTranslationTempChanged;
+  final double classifyTemp;
+  final ValueChanged<double> onClassifyTempChanged;
+  final double pronunciationTemp;
+  final ValueChanged<double> onPronunciationTempChanged;
   final String detectModel;
   final bool backTranslateSource;
   final bool backTranslateTarget;
@@ -114,6 +123,10 @@ class SettingsSheet extends StatefulWidget {
     required this.onTranslationContextChanged,
     this.translationTemp = 0.3,
     required this.onTranslationTempChanged,
+    this.classifyTemp = 0.1,
+    required this.onClassifyTempChanged,
+    this.pronunciationTemp = 0.3,
+    required this.onPronunciationTempChanged,
     this.detectModel = 'gpt-5.4-nano',
     this.backTranslateSource = true,
     this.backTranslateTarget = true,
@@ -274,10 +287,7 @@ class _SettingsSheetState extends State<SettingsSheet> {
                 _dropdownTile('번역 모델', widget.model, SettingsSheet._chatModels, widget.onModelChanged),
               if (widget.mode != 'realtime') ...[
                 _switchTile('대화 맥락 주입', widget.translationContext, widget.onTranslationContextChanged),
-                _dropdownTile('Temperature', widget.translationTemp.toString(), {
-                  '0.0': '0.0', '0.1': '0.1', '0.3': '0.3',
-                  '0.5': '0.5', '0.7': '0.7', '1.0': '1.0',
-                }, (v) => widget.onTranslationTempChanged(double.parse(v))),
+                _dropdownTile('Temperature', widget.translationTemp.toString(), SettingsSheet._tempOptions, (v) => widget.onTranslationTempChanged(double.parse(v))),
               ],
               _dropdownTile('번역 톤', widget.toneMode, {
                 'normal': '기본',
@@ -310,8 +320,11 @@ class _SettingsSheetState extends State<SettingsSheet> {
               _switchTile('${srcLang.name} 역번역', widget.backTranslateSource, widget.onBackTranslateSourceChanged),
               _switchTile('${tgtLang.name} 역번역', widget.backTranslateTarget, widget.onBackTranslateTargetChanged),
               _switchTile('한국어 발음 표시', widget.showPronunciation, widget.onShowPronunciationChanged),
-              if (widget.mode == 'realtime')
+              if (widget.mode == 'realtime') ...[
                 _dropdownTile('탐지 모델', widget.detectModel, SettingsSheet._chatModels, widget.onDetectModelChanged),
+                _dropdownTile('분류 Temp', widget.classifyTemp.toString(), SettingsSheet._tempOptions, (v) => widget.onClassifyTempChanged(double.parse(v))),
+              ],
+              _dropdownTile('발음 Temp', widget.pronunciationTemp.toString(), SettingsSheet._tempOptions, (v) => widget.onPronunciationTempChanged(double.parse(v))),
               const SizedBox(height: 12),
 
               // === 음성 출력 ===
