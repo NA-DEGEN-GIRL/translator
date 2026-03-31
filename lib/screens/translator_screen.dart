@@ -215,7 +215,10 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
         onToneModeChanged: (v) { setState(() => _toneMode = v); setSheetState((){}); _saveSettings(); },
         onAiModelChanged: (v) { setState(() => _aiModel = v); setSheetState((){}); _saveSettings(); },
         onAiPauseSecondsChanged: (v) { setState(() => _aiPauseSeconds = v); setSheetState((){}); _saveSettings(); },
-        onModeChanged: (v) { setState(() => _mode = v); setSheetState((){}); _saveSettings(); },
+        onModeChanged: (v) {
+          if (v != 'realtime' && _realtimeActive) _stopRealtime();
+          setState(() => _mode = v); setSheetState((){}); _saveSettings();
+        },
         onModelChanged: (v) { setState(() => _model = v); setSheetState((){}); _saveSettings(); },
         onRealtimeModelChanged: (v) { setState(() => _realtimeModel = v); setSheetState((){}); _saveSettings(); },
         onSourceLangChanged: (v) { setState(() { _sourceLang = v; _micLang = v; }); setSheetState((){}); _saveSettings(); },
