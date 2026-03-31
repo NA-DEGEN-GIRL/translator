@@ -78,7 +78,8 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
   bool _backTranslateSource = true;
   bool _backTranslateTarget = true;
   bool _showPronunciation = false;
-  bool _deleteConversationItems = true; // delete user+assistant items after each turn
+  bool _deleteConversationItems = true;
+  bool _translationContext = false; // inject conversation context into Ping-Pong translation
   PromptTemplateSet _promptTemplates = AppPrompts.defaults;
 
   @override
@@ -134,6 +135,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
       _backTranslateTarget = prefs.getBool('backTranslateTarget') ?? true;
       _showPronunciation = prefs.getBool('showPronunciation') ?? false;
       _deleteConversationItems = prefs.getBool('deleteConversationItems') ?? true;
+      _translationContext = prefs.getBool('translationContext') ?? false;
       _noiseThreshold = prefs.getDouble('noiseThreshold') ?? (kIsWeb ? -60 : -30);
       _vadThreshold = prefs.getDouble('vadThreshold') ?? 0.9;
       _micLang = _sourceLang;
@@ -165,6 +167,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     prefs.setBool('backTranslateTarget', _backTranslateTarget);
     prefs.setBool('showPronunciation', _showPronunciation);
     prefs.setBool('deleteConversationItems', _deleteConversationItems);
+    prefs.setBool('translationContext', _translationContext);
     prefs.setDouble('noiseThreshold', _noiseThreshold);
     prefs.setDouble('vadThreshold', _vadThreshold);
   }
@@ -217,6 +220,8 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
         onVadThresholdChanged: (v) { setState(() => _vadThreshold = v); setSheetState((){}); _saveSettings(); },
         deleteConversationItems: _deleteConversationItems,
         onDeleteConversationItemsChanged: (v) { setState(() => _deleteConversationItems = v); setSheetState((){}); _saveSettings(); },
+        translationContext: _translationContext,
+        onTranslationContextChanged: (v) { setState(() => _translationContext = v); setSheetState((){}); _saveSettings(); },
         detectModel: _detectModel,
         backTranslateSource: _backTranslateSource,
         backTranslateTarget: _backTranslateTarget,
@@ -356,6 +361,14 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
       final srcName = getLangByCode(_sourceLang).name;
       final tgtName = getLangByCode(_targetLang).name;
       // direction determines source→target or target→source
+      // Build conversation context if enabled
+      List<Map<String, String>>? ctx;
+      if (_translationContext && _messages.isNotEmpty) {
+        ctx = _messages.reversed.take(6).toList().reversed.map((m) {
+          return {'role': 'user', 'content': '${m.original} → ${m.translated}'};
+        }).toList();
+      }
+
       final result = await _openai.translate(text,
         sourceLang: direction == 'source2target' ? srcName : tgtName,
         targetLang: direction == 'source2target' ? tgtName : srcName,
@@ -365,6 +378,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
           sourceLang: direction == 'source2target' ? srcName : tgtName,
           targetLang: direction == 'source2target' ? tgtName : srcName,
         ),
+        context: ctx,
       );
       translated = result['translated'] ?? '';
       backTranslation = result['back_translation'];

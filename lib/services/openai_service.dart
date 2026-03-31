@@ -16,6 +16,7 @@ class OpenAIService {
     String model = 'gpt-5.4-nano',
     ToneMode tone = ToneMode.normal,
     String? systemPrompt,
+    List<Map<String, String>>? context,
   }) async {
     final prompt = systemPrompt ?? AppPrompts.translationSystem(
       PromptLanguagePair(sourceLang: sourceLang, targetLang: targetLang),
@@ -26,6 +27,7 @@ class OpenAIService {
       {'role': 'system', 'content': prompt},
     ];
 
+    if (context != null) messages.addAll(context);
     messages.add({'role': 'user', 'content': text});
 
     final response = await http.post(
