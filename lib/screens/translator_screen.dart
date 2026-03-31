@@ -939,10 +939,17 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
         final turn = rid != null ? _realtime!.turns[rid] : null;
         // Filter out non-translation responses (model outputting meta-text)
         final outputText = turn?.output.trim() ?? '';
+        final lower = outputText.toLowerCase();
         final isJunk = outputText.isEmpty ||
-            outputText.toLowerCase().contains('output nothing') ||
-            outputText.toLowerCase().contains('no output') ||
-            outputText.toLowerCase().contains('silence') ||
+            lower.contains('output nothing') ||
+            lower.contains('no output') ||
+            lower.contains('silence') ||
+            lower.contains('silent') ||
+            lower.contains('say anything') ||
+            lower.contains('completely silent') ||
+            lower.contains('침묵') ||
+            lower.contains('何も出力') ||
+            outputText.length < 2 ||
             (outputText.startsWith('(') && outputText.endsWith(')'));
         // Skip if duplicate of last message (caused by noise/cough triggering repeat)
         final isDuplicate = _messages.isNotEmpty &&
