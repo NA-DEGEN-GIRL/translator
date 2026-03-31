@@ -22,6 +22,7 @@ class RealtimeService {
   final ToneMode tone;
   final String? instructions;
   final bool deleteConversationItems;
+  final bool injectFewShot;
   final void Function(String type, Map<String, dynamic> event) onEvent;
 
   RTCPeerConnection? _pc;
@@ -50,6 +51,7 @@ class RealtimeService {
     this.tone = ToneMode.normal,
     this.instructions,
     this.deleteConversationItems = true,
+    this.injectFewShot = true,
     required this.onEvent,
   });
 
@@ -188,8 +190,7 @@ class RealtimeService {
         final createdInstr = event['session']?['instructions'] as String? ?? '';
         final vadConfig = event['session']?['audio']?['input']?['turn_detection'];
         debugPrint('[RT] session.created: instructionsLen=${createdInstr.length} vad=$vadConfig');
-        // Inject few-shot as conversation items (critical for audio model to follow translation behavior)
-        if (_dc?.state == RTCDataChannelState.RTCDataChannelOpen) {
+        if (injectFewShot && _dc?.state == RTCDataChannelState.RTCDataChannelOpen) {
           _injectFewShotExamples();
         }
         _sessionReady?.complete();

@@ -55,6 +55,8 @@ class SettingsSheet extends StatefulWidget {
   final ValueChanged<double> onVadThresholdChanged;
   final bool deleteConversationItems;
   final ValueChanged<bool> onDeleteConversationItemsChanged;
+  final bool injectFewShot;
+  final ValueChanged<bool> onInjectFewShotChanged;
   final bool translationContext;
   final ValueChanged<bool> onTranslationContextChanged;
   final double translationTemp;
@@ -119,6 +121,8 @@ class SettingsSheet extends StatefulWidget {
     required this.onVadThresholdChanged,
     this.deleteConversationItems = true,
     required this.onDeleteConversationItemsChanged,
+    this.injectFewShot = true,
+    required this.onInjectFewShotChanged,
     this.translationContext = false,
     required this.onTranslationContextChanged,
     this.translationTemp = 0.3,
@@ -376,6 +380,7 @@ class _SettingsSheetState extends State<SettingsSheet> {
                   '0.8': '0.8', '0.9': '0.9', '0.95': '0.95',
                 }, (v) => widget.onVadThresholdChanged(double.parse(v))),
                 _switchTile('대화 기록 삭제', widget.deleteConversationItems, widget.onDeleteConversationItemsChanged),
+                _switchTile('Few-shot 주입', widget.injectFewShot, widget.onInjectFewShotChanged),
               ],
               const SizedBox(height: 12),
 

@@ -79,6 +79,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
   bool _backTranslateTarget = true;
   bool _showPronunciation = false;
   bool _deleteConversationItems = true;
+  bool _injectFewShot = true;
   bool _translationContext = false;
   double _translationTemp = 0.3;
   double _classifyTemp = 0.1;
@@ -138,6 +139,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
       _backTranslateTarget = prefs.getBool('backTranslateTarget') ?? true;
       _showPronunciation = prefs.getBool('showPronunciation') ?? false;
       _deleteConversationItems = prefs.getBool('deleteConversationItems') ?? true;
+      _injectFewShot = prefs.getBool('injectFewShot') ?? true;
       _translationContext = prefs.getBool('translationContext') ?? false;
       _translationTemp = prefs.getDouble('translationTemp') ?? 0.3;
       _classifyTemp = prefs.getDouble('classifyTemp') ?? 0.1;
@@ -173,6 +175,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     prefs.setBool('backTranslateTarget', _backTranslateTarget);
     prefs.setBool('showPronunciation', _showPronunciation);
     prefs.setBool('deleteConversationItems', _deleteConversationItems);
+    prefs.setBool('injectFewShot', _injectFewShot);
     prefs.setBool('translationContext', _translationContext);
     prefs.setDouble('translationTemp', _translationTemp);
     prefs.setDouble('classifyTemp', _classifyTemp);
@@ -229,6 +232,8 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
         onVadThresholdChanged: (v) { setState(() => _vadThreshold = v); setSheetState((){}); _saveSettings(); },
         deleteConversationItems: _deleteConversationItems,
         onDeleteConversationItemsChanged: (v) { setState(() => _deleteConversationItems = v); setSheetState((){}); _saveSettings(); },
+        injectFewShot: _injectFewShot,
+        onInjectFewShotChanged: (v) { setState(() => _injectFewShot = v); setSheetState((){}); _saveSettings(); },
         translationContext: _translationContext,
         onTranslationContextChanged: (v) { setState(() => _translationContext = v); setSheetState((){}); _saveSettings(); },
         translationTemp: _translationTemp,
@@ -870,6 +875,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
       tone: _tone,
       instructions: _realtimePrompt(),
       deleteConversationItems: _deleteConversationItems,
+      injectFewShot: _injectFewShot,
       onEvent: _handleRealtimeEvent,
     );
 
