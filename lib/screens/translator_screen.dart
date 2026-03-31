@@ -943,8 +943,12 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
             outputText.toLowerCase().contains('output nothing') ||
             outputText.toLowerCase().contains('no output') ||
             outputText.toLowerCase().contains('silence') ||
-            outputText.startsWith('(') && outputText.endsWith(')');
-        if (turn != null && !isJunk) {
+            (outputText.startsWith('(') && outputText.endsWith(')'));
+        // Skip if duplicate of last message (caused by noise/cough triggering repeat)
+        final isDuplicate = _messages.isNotEmpty &&
+            !_messages.last.isAI &&
+            _messages.last.translated == outputText;
+        if (turn != null && !isJunk && !isDuplicate) {
           // Try unicode detection first, fallback to nano model
           final outputLang = _detectLang(turn.output);
           final direction = (outputLang != null)
