@@ -243,6 +243,10 @@ class RealtimeService {
 
       case 'output_audio_buffer.stopped':
       case 'output_audio_buffer.cleared':
+        // Clear any echo captured in buffer during playback
+        if (_dc?.state == RTCDataChannelState.RTCDataChannelOpen) {
+          _dc!.send(RTCDataChannelMessage(jsonEncode({'type': 'input_audio_buffer.clear'})));
+        }
         _safeUnmute();
         break;
 
