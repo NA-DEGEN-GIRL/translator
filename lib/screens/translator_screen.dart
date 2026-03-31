@@ -72,8 +72,14 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     'casual' => ToneMode.casual,
     _ => ToneMode.normal,
   };
-  String _realtimeVoice = 'coral'; // Realtime API voices: alloy, ash, ballad, coral, echo, sage, shimmer, verse, marin, cedar
+  String _realtimeVoice = 'coral';
   String _realtimeModel = 'gpt-realtime-mini';
+  String _detectModel = 'gpt-5.4-nano'; // model for RT language detection
+  bool _backTranslateSource = true;
+  bool _backTranslateTarget = true;
+  bool _showPronunciation = false;
+  bool _deleteConversationItems = true; // delete user+assistant items after each turn
+  PromptTemplateSet _promptTemplates = AppPrompts.defaults;
 
   @override
   void initState() {
@@ -101,6 +107,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
 
   Future<void> _loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
+    final promptTemplates = await AppPrompts.loadTemplates();
     setState(() {
       _sourceLang = prefs.getString('sourceLang') ?? 'ko';
       _targetLang = prefs.getString('targetLang') ?? 'ja';
@@ -122,9 +129,15 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
       _toneMode = prefs.getString('toneMode') ?? 'normal';
       _realtimeVoice = prefs.getString('realtimeVoice') ?? 'coral';
       _realtimeModel = prefs.getString('realtimeModel') ?? 'gpt-realtime-mini';
-      _noiseThreshold = prefs.getDouble('noiseThreshold') ?? -30;
+      _detectModel = prefs.getString('detectModel') ?? 'gpt-5.4-nano';
+      _backTranslateSource = prefs.getBool('backTranslateSource') ?? true;
+      _backTranslateTarget = prefs.getBool('backTranslateTarget') ?? true;
+      _showPronunciation = prefs.getBool('showPronunciation') ?? false;
+      _deleteConversationItems = prefs.getBool('deleteConversationItems') ?? true;
+      _noiseThreshold = prefs.getDouble('noiseThreshold') ?? (kIsWeb ? -60 : -30);
       _vadThreshold = prefs.getDouble('vadThreshold') ?? 0.9;
       _micLang = _sourceLang;
+      _promptTemplates = promptTemplates;
     });
   }
 
@@ -147,6 +160,11 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     prefs.setString('toneMode', _toneMode);
     prefs.setString('realtimeVoice', _realtimeVoice);
     prefs.setString('realtimeModel', _realtimeModel);
+    prefs.setString('detectModel', _detectModel);
+    prefs.setBool('backTranslateSource', _backTranslateSource);
+    prefs.setBool('backTranslateTarget', _backTranslateTarget);
+    prefs.setBool('showPronunciation', _showPronunciation);
+    prefs.setBool('deleteConversationItems', _deleteConversationItems);
     prefs.setDouble('noiseThreshold', _noiseThreshold);
     prefs.setDouble('vadThreshold', _vadThreshold);
   }
@@ -197,10 +215,86 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
         onPauseSecondsChanged: (v) { setState(() => _pauseSeconds = v); setSheetState((){}); _saveSettings(); },
         onNoiseThresholdChanged: (v) { setState(() => _noiseThreshold = v); setSheetState((){}); _saveSettings(); },
         onVadThresholdChanged: (v) { setState(() => _vadThreshold = v); setSheetState((){}); _saveSettings(); },
+        deleteConversationItems: _deleteConversationItems,
+        onDeleteConversationItemsChanged: (v) { setState(() => _deleteConversationItems = v); setSheetState((){}); _saveSettings(); },
+        detectModel: _detectModel,
+        backTranslateSource: _backTranslateSource,
+        backTranslateTarget: _backTranslateTarget,
+        onDetectModelChanged: (v) { setState(() => _detectModel = v); setSheetState((){}); _saveSettings(); },
+        onBackTranslateSourceChanged: (v) { setState(() => _backTranslateSource = v); setSheetState((){}); _saveSettings(); },
+        onBackTranslateTargetChanged: (v) { setState(() => _backTranslateTarget = v); setSheetState((){}); _saveSettings(); },
+        showPronunciation: _showPronunciation,
+        onShowPronunciationChanged: (v) { setState(() => _showPronunciation = v); setSheetState((){}); _saveSettings(); },
+        promptTemplates: _promptTemplates,
+        onPromptChanged: (key, value) async {
+          await AppPrompts.saveTemplate(key, value);
+          if (!mounted) return;
+          setState(() => _promptTemplates = _updatedPromptTemplates(key, value));
+          setSheetState(() {});
+        },
+        onPromptReset: (key) async {
+          await AppPrompts.resetTemplate(key);
+          if (!mounted) return;
+          final templates = await AppPrompts.loadTemplates();
+          if (!mounted) return;
+          setState(() => _promptTemplates = templates);
+          setSheetState(() {});
+        },
         onResetApiKey: () { Navigator.pop(context); _resetApiKey(); },
       )),
     );
   }
+
+  PromptTemplateSet _updatedPromptTemplates(String key, String value) {
+    switch (key) {
+      case AppPrompts.translationSystemKey:
+        return _promptTemplates.copyWith(translationSystem: value);
+      case AppPrompts.assistantSystemKey:
+        return _promptTemplates.copyWith(assistantSystem: value);
+      case AppPrompts.ttsInstructionsKey:
+        return _promptTemplates.copyWith(ttsInstructions: value);
+      case AppPrompts.realtimeTranslationKey:
+        return _promptTemplates.copyWith(realtimeTranslation: value);
+      case AppPrompts.postProcessKey:
+        return _promptTemplates.copyWith(postProcess: value);
+      default:
+        return _promptTemplates;
+    }
+  }
+
+  String _translationPrompt({required String sourceLang, required String targetLang}) {
+    return AppPrompts.translationSystem(
+      PromptLanguagePair(sourceLang: sourceLang, targetLang: targetLang),
+      tone: _tone,
+      template: _promptTemplates.translationSystem,
+    );
+  }
+
+  String _assistantPrompt({required bool hasContext}) {
+    return AppPrompts.assistantSystem(
+      hasContext: hasContext,
+      template: _promptTemplates.assistantSystem,
+    );
+  }
+
+  String get _ttsPrompt => AppPrompts.ttsInstructions(
+    template: _promptTemplates.ttsInstructions,
+  );
+
+  String _realtimePrompt() {
+    final src = getLangByCode(_sourceLang).name;
+    final tgt = getLangByCode(_targetLang).name;
+    return AppPrompts.realtimeTranslation(
+      PromptLanguagePair(sourceLang: src, targetLang: tgt),
+      tone: _tone,
+      template: _promptTemplates.realtimeTranslation,
+      sourceLangCode: _sourceLang,
+      targetLangCode: _targetLang,
+    );
+  }
+
+  static const _latinLangs = {'en', 'de', 'fr', 'vi'};
+  bool _isLatinLang(String code) => _latinLangs.contains(code);
 
   String? _detectLang(String text) {
     // Detect by unicode ranges. Returns null if undetectable (Latin etc.)
@@ -267,6 +361,10 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
         targetLang: direction == 'source2target' ? tgtName : srcName,
         model: _model,
         tone: _tone,
+        systemPrompt: _translationPrompt(
+          sourceLang: direction == 'source2target' ? srcName : tgtName,
+          targetLang: direction == 'source2target' ? tgtName : srcName,
+        ),
       );
       translated = result['translated'] ?? '';
       backTranslation = result['back_translation'];
@@ -284,25 +382,59 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
         _scrollToBottom();
       }
 
-      // Async back-translation for verification
-      if (translated.isNotEmpty && mounted) {
+      // Async back-translation for verification (per-language setting)
+      final wantBT = direction == 'source2target' ? _backTranslateTarget : _backTranslateSource;
+      if (translated.isNotEmpty && mounted && wantBT) {
         final btSrcName = direction == 'source2target' ? tgtName : srcName;
         final btTgtName = direction == 'source2target' ? srcName : tgtName;
-        _openai.translate(translated, sourceLang: btSrcName, targetLang: btTgtName, model: _model).then((r) {
+        _openai.translate(
+          translated,
+          sourceLang: btSrcName,
+          targetLang: btTgtName,
+          model: _model,
+          systemPrompt: _translationPrompt(sourceLang: btSrcName, targetLang: btTgtName),
+        ).then((r) async {
           if (!mounted) return;
           final bt = r['translated'] ?? '';
-          if (bt.isNotEmpty) {
+          // Pronunciation for non-KO/EN
+          // Pronunciation: pronounce whichever text is foreign (not KO/EN)
+          String? pron;
+          if (_showPronunciation) {
+            final outputLangCode = direction == 'source2target' ? _targetLang : _sourceLang;
+            String? textToPronounce;
+            if (outputLangCode != 'ko' && outputLangCode != 'en') {
+              textToPronounce = translated; // output is foreign
+            } else if (bt.isNotEmpty) {
+              final btLangCode = direction == 'source2target' ? _sourceLang : _targetLang;
+              if (btLangCode != 'ko' && btLangCode != 'en') {
+                textToPronounce = bt; // back-translation is foreign
+              }
+            }
+            if (textToPronounce != null) {
+              try {
+                final pronResult = await _openai.askAssistant(
+                  'Write the Korean pronunciation (한국어 발음) of this text. Reply with ONLY the pronunciation: $textToPronounce',
+                  model: 'gpt-5.4-nano',
+                );
+                pron = pronResult.trim();
+              } catch (_) {}
+            }
+          }
+          if (!mounted) return;
+          if (bt.isNotEmpty || pron != null) {
             setState(() {
               final idx = _messages.indexOf(msg);
               if (idx >= 0) {
                 _messages[idx] = ChatMessage(
                   original: msg.original,
                   translated: msg.translated,
-                  backTranslation: bt,
+                  backTranslation: bt.isNotEmpty ? bt : null,
+                  pronunciation: pron,
                   direction: msg.direction,
                 );
               }
             });
+            _scrollToBottom();
           }
         }).catchError((_) {});
       }
@@ -325,7 +457,12 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
 
   Future<void> _playOpenAITTS(String text, String lang, String voice) async {
     try {
-      final audioBytes = await _openai.tts(text, lang, voice: voice);
+      final audioBytes = await _openai.tts(
+        text,
+        lang,
+        voice: voice,
+        instructions: _ttsPrompt,
+      );
       await _audioPlayer.play(BytesSource(audioBytes));
     } catch (e) {
       // Fallback to browser TTS
@@ -541,7 +678,12 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
         return <String, String>{'content': '${m.direction}: ${m.original} → ${m.translated}'};
       }).toList();
 
-      final answer = await _openai.askAssistant(question, conversationContext: ctx, model: _aiModel);
+      final answer = await _openai.askAssistant(
+        question,
+        conversationContext: ctx,
+        model: _aiModel,
+        systemPrompt: _assistantPrompt(hasContext: ctx.isNotEmpty),
+      );
 
       if (mounted) {
         setState(() {
@@ -600,6 +742,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     final effectivePause = _aiMode ? _aiPauseSeconds : _pauseSeconds;
     if (effectivePause < 30) { // 30 = OFF
       _ampSub = _recorder.onAmplitudeChanged(const Duration(milliseconds: 200)).listen((amp) {
+        debugPrint('[AMP] ${amp.current.toStringAsFixed(1)} dB (threshold: $_noiseThreshold)');
         if (amp.current < _noiseThreshold) {
           _silenceTimer ??= Timer(Duration(seconds: effectivePause), () {
             if (_isRecording) _stopOpenAIRecording(forceDirection: forceDirection);
@@ -676,10 +819,8 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
 
   void _updateRealtimeAudioMute() {
     if (_realtimeActive && _realtime != null) {
-      // Update per-direction TTS + VAD auto-response settings
-      _realtime!.updateTtsSettings(_ttsSourceEnabled, _ttsTargetEnabled);
-      // Global mute when both are off (defense-in-depth)
-      _realtime!.muteAudio(!_ttsSourceEnabled && !_ttsTargetEnabled);
+      // Realtime UI shows single toggle mapped to _ttsTargetEnabled
+      _realtime!.muteAudio(!_ttsTargetEnabled);
     }
   }
 
@@ -696,8 +837,8 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
       targetLangCode: _targetLang,
       vadThreshold: _vadThreshold,
       tone: _tone,
-      ttsSourceEnabled: _ttsSourceEnabled,
-      ttsTargetEnabled: _ttsTargetEnabled,
+      instructions: _realtimePrompt(),
+      deleteConversationItems: _deleteConversationItems,
       onEvent: _handleRealtimeEvent,
     );
 
@@ -750,8 +891,9 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
         });
         break;
 
+
       case 'response.output_audio_transcript.delta':
-      case 'response.text.delta':
+      case 'response.output_text.delta':
         final rid = event['response_id'] as String?;
         if (rid != null && _realtime!.turns.containsKey(rid)) {
           setState(() {
@@ -765,21 +907,19 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
         final rid = event['response']?['id'] as String?;
         final turn = rid != null ? _realtime!.turns[rid] : null;
         if (turn != null && turn.output.isNotEmpty) {
-          // Realtime: output = AI's translated speech transcript
-          // Detect output language to determine direction
+          // Try unicode detection first, fallback to nano model
           final outputLang = _detectLang(turn.output);
-          final didTranslate = outputLang != null && outputLang != _sourceLang;
-          final direction = didTranslate
-              ? '${_sourceLang}2${_targetLang}'
-              : '${_targetLang}2${_sourceLang}';
+          final direction = (outputLang != null)
+              ? (outputLang != _sourceLang
+                  ? '${_sourceLang}2${_targetLang}'
+                  : '${_targetLang}2${_sourceLang}')
+              : '${_sourceLang}2${_targetLang}'; // default for Latin pairs
 
-          // turn.input = user's original speech transcript (from Whisper)
-          // turn.output = AI's translation
-          final hasOriginal = turn.input.isNotEmpty;
           final msg = ChatMessage(
-            original: hasOriginal ? turn.input : turn.output,
+            original: turn.output, // back-translation will serve as "what was said"
             translated: turn.output,
             direction: direction,
+            turnId: rid,
           );
           setState(() {
             _messages.add(msg);
@@ -788,30 +928,24 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
           });
           _scrollToBottom();
 
-          // Reverse-translate to verify translation quality
-          if (turn.output.isNotEmpty && mounted) {
-            final fromName = getLangByCode(didTranslate ? _targetLang : _sourceLang).name;
-            final toName = getLangByCode(didTranslate ? _sourceLang : _targetLang).name;
-            _openai.translate(turn.output, sourceLang: fromName, targetLang: toName, model: _model).then((r) {
-              if (!mounted) return;
-              if (r['translated']?.isNotEmpty ?? false) {
-                setState(() {
-                  final idx = _messages.indexOf(msg);
-                  if (idx >= 0) {
-                    _messages[idx] = ChatMessage(
-                      original: msg.original,
-                      translated: msg.translated,
-                      backTranslation: r['translated'],
-                      direction: msg.direction,
-                    );
-                  }
-                });
-              }
-            }).catchError((_) {});
-          }
+          // Async: detect language via nano + back-translate
+          final msgIndex = _messages.length - 1;
+          _asyncRealtimePostProcess(msgIndex, turn.output, outputLang);
 
-          // Clean turn
-          if (rid != null) _realtime!.turns.remove(rid);
+          // Delay turn cleanup to allow late transcript to arrive
+          if (rid != null) {
+            Future.delayed(const Duration(seconds: 10), () {
+              _realtime?.turns.remove(rid);
+            });
+          }
+        }
+        break;
+
+      case 'error':
+        final errMsg = event['error']?['message'] ?? 'Unknown error';
+        // Show error in UI for debugging (benign errors already filtered in service)
+        if (!errMsg.toString().contains('no active response')) {
+          _showError('Realtime: $errMsg');
         }
         break;
 
@@ -821,7 +955,8 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
         break;
 
       case 'remote_stream':
-        // Audio playback handled by RealtimeService's RTCVideoRenderer
+        // Re-apply mute setting now that remote stream is available
+        _updateRealtimeAudioMute();
         break;
     }
   }
@@ -831,6 +966,100 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(msg), backgroundColor: Colors.red),
     );
+  }
+
+  /// Async post-process for Realtime: detect language (nano) + back-translate
+  Future<void> _asyncRealtimePostProcess(int msgIndex, String output, String? detectedLang) async {
+    if (!mounted || msgIndex < 0 || msgIndex >= _messages.length) return;
+
+    String direction = _messages[msgIndex].direction;
+    String? backTranslation;
+
+    // If unicode couldn't detect language, ask nano model as classifier
+    if (detectedLang == null && output.isNotEmpty) {
+      try {
+        final srcName = getLangByCode(_sourceLang).name;
+        final tgtName = getLangByCode(_targetLang).name;
+        final result = await _openai.askAssistant(
+          'Which language is this text? Reply with ONLY one word: $srcName or $tgtName\n\nText: $output',
+          model: _detectModel,
+          systemPrompt: 'You are a language classifier. Reply with exactly one language name. No explanation.',
+        );
+        final answer = result.trim().toLowerCase();
+        if (answer.contains(tgtName.toLowerCase())) {
+          detectedLang = _targetLang;
+          direction = '${_sourceLang}2${_targetLang}';
+        } else if (answer.contains(srcName.toLowerCase())) {
+          detectedLang = _sourceLang;
+          direction = '${_targetLang}2${_sourceLang}';
+        }
+      } catch (_) {}
+    }
+
+    // Back-translate (respecting per-language settings)
+    if (detectedLang != null && output.isNotEmpty && mounted) {
+      final isTarget = detectedLang != _sourceLang;
+      final wantBT = isTarget ? _backTranslateTarget : _backTranslateSource;
+      if (wantBT) {
+        try {
+          final fromName = getLangByCode(isTarget ? _targetLang : _sourceLang).name;
+          final toName = getLangByCode(isTarget ? _sourceLang : _targetLang).name;
+          final r = await _openai.translate(
+            output,
+            sourceLang: fromName,
+            targetLang: toName,
+            model: _detectModel,
+            systemPrompt: _translationPrompt(sourceLang: fromName, targetLang: toName),
+          );
+          backTranslation = r['translated'];
+        } catch (_) {}
+      }
+    }
+
+    // Pronunciation: Korean reading of the FOREIGN language text
+    // If output is foreign → pronounce output
+    // If output is Korean → pronounce back-translation (which is foreign)
+    String? pronunciation;
+    if (_showPronunciation && detectedLang != null && mounted) {
+      final outputLangCode = detectedLang != _sourceLang ? _targetLang : _sourceLang;
+      String? textToPronounce;
+      if (outputLangCode != 'ko' && outputLangCode != 'en') {
+        textToPronounce = output; // output is foreign
+      } else if (backTranslation != null && backTranslation!.isNotEmpty) {
+        // output is KO/EN, but back-translation is in the foreign language
+        final btLangCode = outputLangCode == _sourceLang ? _targetLang : _sourceLang;
+        if (btLangCode != 'ko' && btLangCode != 'en') {
+          textToPronounce = backTranslation;
+        }
+      }
+      if (textToPronounce != null) {
+        try {
+          final result = await _openai.askAssistant(
+            'Write the Korean pronunciation (한국어 발음) of this text. Reply with ONLY the pronunciation, nothing else: $textToPronounce',
+            model: _detectModel,
+          );
+          final p = result.trim();
+          if (p.isNotEmpty) pronunciation = p;
+        } catch (_) {}
+      }
+    }
+
+    if (!mounted || msgIndex >= _messages.length) return;
+    final cur = _messages[msgIndex];
+    debugPrint('[RT] postProcess: idx=$msgIndex dir=$direction bt=$backTranslation pron=$pronunciation');
+    if (direction != cur.direction || backTranslation != null || pronunciation != null) {
+      setState(() {
+        _messages[msgIndex] = ChatMessage(
+          original: cur.original,
+          translated: cur.translated,
+          backTranslation: backTranslation ?? cur.backTranslation,
+          pronunciation: pronunciation ?? cur.pronunciation,
+          direction: direction,
+          turnId: cur.turnId,
+        );
+      });
+      _scrollToBottom();
+    }
   }
 
   Future<void> _replayMessage(ChatMessage msg) async {
@@ -946,8 +1175,8 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
             outlined: true,
           ),
           const SizedBox(width: 4),
-          // Direction toggle: source→target / target→source
-          if (!_aiMode)
+          // Direction toggle: source→target / target→source (hidden in Realtime)
+          if (!_aiMode && !(_mode == 'realtime' && _realtimeActive))
             GestureDetector(
               onTap: () => setState(() {
                 _textDirection = _textDirection == 'source2target' ? 'target2source' : 'source2target';

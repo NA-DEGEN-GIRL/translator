@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:http/http.dart' as http;
 import '../models/language.dart';
@@ -8,6 +9,7 @@ import '../prompts.dart';
 class RealtimeTurn {
   String input = '';
   String output = '';
+  String? userItemId; // links response to user conversation item
 }
 
 class RealtimeService {
@@ -18,8 +20,8 @@ class RealtimeService {
   final String targetLangCode;
   final double vadThreshold;
   final ToneMode tone;
-  bool ttsSourceEnabled; // audio for target→source translations
-  bool ttsTargetEnabled; // audio for source→target translations
+  final String? instructions;
+  final bool deleteConversationItems;
   final void Function(String type, Map<String, dynamic> event) onEvent;
 
   RTCPeerConnection? _pc;
@@ -31,10 +33,12 @@ class RealtimeService {
   bool _active = false;
   Completer<void>? _sessionReady;
   Timer? _unmuteWatchdog;
+  Timer? _safeUnmuteTimer;
 
-  final Map<String, RealtimeTurn> turns = {};
+  final Map<String, RealtimeTurn> turns = {}; // keyed by response_id
+  final Map<String, String> _itemToResponse = {}; // user item_id → response_id
   String? currentResponseId;
-  String lastUserTranscript = '';
+  String? _lastUserItemId; // most recent user conversation item
 
   RealtimeService({
     required this.apiKey,
@@ -44,20 +48,16 @@ class RealtimeService {
     this.targetLangCode = 'ja',
     this.vadThreshold = 0.5,
     this.tone = ToneMode.normal,
-    this.ttsSourceEnabled = true,
-    this.ttsTargetEnabled = true,
+    this.instructions,
+    this.deleteConversationItems = true,
     required this.onEvent,
   });
 
   bool get isActive => _active;
   MediaStream? get remoteStream => _remoteStream;
 
-  /// Both TTS enabled = no filtering needed, auto-response OK
-  bool get _bothTtsEnabled => ttsSourceEnabled && ttsTargetEnabled;
-  /// Neither TTS enabled = always text-only
-  bool get _neitherTtsEnabled => !ttsSourceEnabled && !ttsTargetEnabled;
-
   String _buildSystemPrompt() {
+    if (instructions != null) return instructions!;
     final src = getLangByCode(sourceLangCode);
     final tgt = getLangByCode(targetLangCode);
     return AppPrompts.realtimeTranslation(
@@ -79,8 +79,17 @@ class RealtimeService {
         'session': {
           'type': 'realtime',
           'model': model,
-          'audio': {'output': {'voice': voice}},
           'instructions': _buildSystemPrompt(),
+          'audio': {
+            'input': {
+              'turn_detection': {
+                'type': 'server_vad',
+                'threshold': vadThreshold,
+                'create_response': true,
+              },
+            },
+            'output': {'voice': voice},
+          },
         }
       }),
     );
@@ -125,6 +134,9 @@ class RealtimeService {
     _localTrack = _localStream!.getAudioTracks().first;
     _pc!.addTrack(_localTrack!, _localStream!);
 
+    // Create completer BEFORE data channel to avoid race with session.created
+    _sessionReady = Completer<void>();
+
     _dc = await _pc!.createDataChannel('oai-events', RTCDataChannelInit());
     _dc!.onMessage = (msg) {
       try {
@@ -153,11 +165,9 @@ class RealtimeService {
       RTCSessionDescription(sdpRes.body, 'answer'),
     );
 
-    // Wait for session.created + VAD/few-shot injection before declaring active
-    _sessionReady = Completer<void>();
     await _sessionReady!.future.timeout(
       const Duration(seconds: 10),
-      onTimeout: () {}, // proceed anyway after 10s
+      onTimeout: () => throw Exception('Realtime session setup timed out'),
     );
     _sessionReady = null;
     _active = true;
@@ -165,25 +175,19 @@ class RealtimeService {
 
   void _handleEvent(Map<String, dynamic> event) {
     final type = event['type'] as String? ?? '';
+    debugPrint('[RT] event: $type');
 
     switch (type) {
+      case 'session.updated':
+        final updatedInstr = event['session']?['instructions'] as String? ?? '';
+        debugPrint('[RT] session.updated: instructionsLen=${updatedInstr.length} first100="${updatedInstr.substring(0, updatedInstr.length > 100 ? 100 : updatedInstr.length)}"');
+        break;
+
       case 'session.created':
+        final createdInstr = event['session']?['instructions'] as String? ?? '';
+        debugPrint('[RT] session.created: instructionsLen=${createdInstr.length} first100="${createdInstr.substring(0, createdInstr.length > 100 ? 100 : createdInstr.length)}"');
+        // Inject few-shot as conversation items (critical for audio model to follow translation behavior)
         if (_dc?.state == RTCDataChannelState.RTCDataChannelOpen) {
-          // VAD config: disable auto-response for per-direction audio control
-          // VAD + transcription config
-          _dc!.send(RTCDataChannelMessage(jsonEncode({
-            'type': 'session.update',
-            'session': {
-              'turn_detection': {
-                'type': 'server_vad',
-                'threshold': vadThreshold,
-                'create_response': _bothTtsEnabled,
-              },
-              'input_audio_transcription': {
-                'model': 'whisper-1',
-              },
-            },
-          })));
           _injectFewShotExamples();
         }
         _sessionReady?.complete();
@@ -195,34 +199,37 @@ class RealtimeService {
         }
         break;
 
-      case 'conversation.item.done':
-        final item = event['item'] as Map<String, dynamic>?;
-        if (item?['type'] == 'message' && item?['role'] == 'user') {
-          final content = item?['content'] as List?;
-          if (content != null) {
-            for (final c in content) {
-              if (c['type'] == 'input_audio' && c['transcript'] != null) {
-                lastUserTranscript = c['transcript'];
-              }
-            }
-          }
-          // When auto-response is disabled, manually trigger with direction-based modalities
-          if (!_bothTtsEnabled && lastUserTranscript.isNotEmpty) {
-            _triggerDirectionalResponse(lastUserTranscript);
-          }
+      case 'conversation.item.added':
+        final addedItem = event['item'] as Map<String, dynamic>?;
+        if (addedItem?['type'] == 'message' && addedItem?['role'] == 'user') {
+          final itemId = addedItem?['id'] as String?;
+          if (itemId != null) _lastUserItemId = itemId;
         }
         break;
 
+      // transcription removed — Realtime model's understanding is a black box
+      // back-translation serves as the "original" text instead
+
       case 'response.created':
         final respId = event['response']?['id'] as String?;
+        debugPrint('[RT] response.created: id=$respId userItem=$_lastUserItemId');
         if (respId != null) {
           currentResponseId = respId;
-          turns[respId] = RealtimeTurn()..input = lastUserTranscript;
+          final turn = RealtimeTurn()..userItemId = _lastUserItemId;
+          // For text input, set input immediately (no transcript event)
+          if (_pendingTextInput != null) {
+            turn.input = _pendingTextInput!;
+            _pendingTextInput = null;
+          }
+          turns[respId] = turn;
+          if (_lastUserItemId != null) {
+            _itemToResponse[_lastUserItemId!] = respId;
+          }
         }
         break;
 
       case 'response.output_audio_transcript.delta':
-      case 'response.text.delta':
+      case 'response.output_text.delta':
         final rid = event['response_id'] as String?;
         if (rid != null && turns.containsKey(rid)) {
           turns[rid]!.output += (event['delta'] ?? '');
@@ -240,11 +247,28 @@ class RealtimeService {
 
       case 'response.done':
         final rid = event['response']?['id'] as String?;
-        if (rid != null) {
-          currentResponseId = null;
-          lastUserTranscript = '';
-        }
         final status = event['response']?['status'] as String?;
+        debugPrint('[RT] response.done: id=$rid status=$status');
+        if (rid != null) {
+          final turnOutput = turns[rid]?.output ?? '';
+          final turnInput = turns[rid]?.input ?? '';
+          debugPrint('[RT] response.done: input="$turnInput" output="${turnOutput.length > 100 ? turnOutput.substring(0, 100) : turnOutput}"');
+
+          // Delete conversation items to prevent history bias (configurable)
+          if (deleteConversationItems && status == 'completed' && _dc?.state == RTCDataChannelState.RTCDataChannelOpen) {
+            final userItemId = turns[rid]?.userItemId;
+            final outputItems = event['response']?['output'] as List?;
+            final assistantItemId = outputItems?.isNotEmpty == true ? outputItems!.first['id'] as String? : null;
+            if (userItemId != null) {
+              _dc!.send(RTCDataChannelMessage(jsonEncode({'type': 'conversation.item.delete', 'item_id': userItemId})));
+            }
+            if (assistantItemId != null) {
+              _dc!.send(RTCDataChannelMessage(jsonEncode({'type': 'conversation.item.delete', 'item_id': assistantItemId})));
+            }
+          }
+
+          currentResponseId = null;
+        }
         if (status != null && status != 'completed') {
           _safeUnmute();
         }
@@ -252,8 +276,9 @@ class RealtimeService {
 
       case 'error':
         final errMsg = event['error']?['message'] ?? '';
-        if (errMsg.toString().contains('no active response') ||
-            errMsg.toString().contains('unknown_parameter')) {
+        final errCode = event['error']?['code'] ?? '';
+        debugPrint('[RT] ERROR: code=$errCode msg=$errMsg');
+        if (errMsg.toString().contains('no active response')) {
           return;
         }
         _safeUnmute();
@@ -263,13 +288,12 @@ class RealtimeService {
     onEvent(type, event);
   }
 
-  bool _aiHold = false; // AI mode hold — prevents auto unmute
+  bool _aiHold = false;
 
   void enterAIHold() {
     _aiHold = true;
     _cancelUnmuteWatchdog();
     _localTrack?.enabled = false;
-    // Cancel any ongoing response
     if (currentResponseId != null && _dc?.state == RTCDataChannelState.RTCDataChannelOpen) {
       _dc!.send(RTCDataChannelMessage(jsonEncode({'type': 'response.cancel'})));
     }
@@ -281,9 +305,10 @@ class RealtimeService {
   }
 
   void muteMic(bool mute) {
-    if (_aiHold) return; // Don't auto-unmute during AI hold
+    if (_aiHold) return;
     _localTrack?.enabled = !mute;
     if (mute) {
+      _safeUnmuteTimer?.cancel(); // cancel any pending unmute
       _startUnmuteWatchdog();
     } else {
       _cancelUnmuteWatchdog();
@@ -292,7 +317,7 @@ class RealtimeService {
 
   void _startUnmuteWatchdog() {
     _cancelUnmuteWatchdog();
-    _unmuteWatchdog = Timer(const Duration(seconds: 5), () {
+    _unmuteWatchdog = Timer(const Duration(seconds: 15), () {
       if (_active && !_aiHold) {
         _localTrack?.enabled = true;
         onEvent('watchdog_unmute', {});
@@ -306,31 +331,15 @@ class RealtimeService {
   }
 
   void _safeUnmute() {
-    if (_aiHold) return; // Don't auto-unmute during AI hold
+    if (_aiHold) return;
     _cancelUnmuteWatchdog();
-    Future.delayed(const Duration(milliseconds: 500), () {
+    _safeUnmuteTimer?.cancel();
+    _safeUnmuteTimer = Timer(const Duration(milliseconds: 300), () {
       if (_active && !_aiHold) _localTrack?.enabled = true;
     });
   }
 
-  void updateTtsSettings(bool sourceEnabled, bool targetEnabled) {
-    ttsSourceEnabled = sourceEnabled;
-    ttsTargetEnabled = targetEnabled;
-    // Update VAD auto-response based on new TTS settings
-    if (_dc?.state == RTCDataChannelState.RTCDataChannelOpen) {
-      _dc!.send(RTCDataChannelMessage(jsonEncode({
-        'type': 'session.update',
-        'session': {
-          'turn_detection': {
-            'type': 'server_vad',
-            'threshold': vadThreshold,
-            'create_response': _bothTtsEnabled,
-          },
-        },
-      })));
-    }
-  }
-
+  /// Simple on/off audio control
   void muteAudio(bool mute) {
     if (_remoteStream != null) {
       for (final track in _remoteStream!.getAudioTracks()) {
@@ -356,66 +365,39 @@ class RealtimeService {
         'item': {
           'type': 'message',
           'role': 'assistant',
-          'content': [{'type': 'text', 'text': ex['assistant']}],
+          'content': [{'type': 'output_text', 'text': ex['assistant']}],
         },
       })));
     }
   }
 
-  void _triggerDirectionalResponse(String inputText) {
-    if (_dc?.state != RTCDataChannelState.RTCDataChannelOpen) return;
-
-    final inputLang = _detectLangSimple(inputText) ?? sourceLangCode;
-    // inputLang == sourceLangCode → output is target language
-    // inputLang == targetLangCode → output is source language
-    final outputIsTarget = (inputLang != targetLangCode);
-    final wantAudio = outputIsTarget ? ttsTargetEnabled : ttsSourceEnabled;
-
-    if (_neitherTtsEnabled) {
-      // Both off: text only, mute remote audio
-      _dc!.send(RTCDataChannelMessage(jsonEncode({
-        'type': 'response.create',
-        'response': {'modalities': ['text']},
-      })));
-    } else if (wantAudio) {
-      _dc!.send(RTCDataChannelMessage(jsonEncode({
-        'type': 'response.create',
-      })));
-    } else {
-      // Don't want audio for this direction: text only
-      _dc!.send(RTCDataChannelMessage(jsonEncode({
-        'type': 'response.create',
-        'response': {'modalities': ['text']},
-      })));
+  List<Map<String, dynamic>> _buildFewShotInput() {
+    final examples = AppPrompts.realtimeFewShotExamples(sourceLangCode, targetLangCode);
+    final items = <Map<String, dynamic>>[];
+    for (final ex in examples) {
+      items.add({
+        'type': 'message',
+        'role': 'user',
+        'content': [{'type': 'input_text', 'text': ex['user']}],
+      });
+      items.add({
+        'type': 'message',
+        'role': 'assistant',
+        'content': [{'type': 'output_text', 'text': ex['assistant']}],
+      });
     }
+    return items;
   }
 
-  String? _detectLangSimple(String text) {
-    final scores = <String, int>{};
-    for (final ch in text.runes) {
-      if ((ch >= 0xAC00 && ch <= 0xD7AF) || (ch >= 0x1100 && ch <= 0x11FF) || (ch >= 0x3130 && ch <= 0x318F)) {
-        scores['ko'] = (scores['ko'] ?? 0) + 1;
-      }
-      if ((ch >= 0x3040 && ch <= 0x309F) || (ch >= 0x30A0 && ch <= 0x30FF)) {
-        scores['ja'] = (scores['ja'] ?? 0) + 1;
-      }
-      if (ch >= 0x4E00 && ch <= 0x9FFF) {
-        scores['zh'] = (scores['zh'] ?? 0) + 1;
-        scores['ja'] = (scores['ja'] ?? 0) + 1;
-      }
-      if (ch >= 0x0400 && ch <= 0x04FF) {
-        scores['ru'] = (scores['ru'] ?? 0) + 1;
-      }
-    }
-    if (scores.isEmpty) return null;
-    return scores.entries.reduce((a, b) => a.value >= b.value ? a : b).key;
-  }
+
+  String? getResponseIdForItem(String itemId) => _itemToResponse[itemId];
 
   void clearState() {
     sendCancel();
     turns.clear();
+    _itemToResponse.clear();
     currentResponseId = null;
-    lastUserTranscript = '';
+    _lastUserItemId = null;
   }
 
   void sendCancel() {
@@ -424,9 +406,11 @@ class RealtimeService {
     }
   }
 
+  String? _pendingTextInput; // for text input (no transcript event)
+
   void sendText(String text) {
     if (_dc?.state != RTCDataChannelState.RTCDataChannelOpen) return;
-    lastUserTranscript = text;
+    _pendingTextInput = text;
     _dc!.send(RTCDataChannelMessage(jsonEncode({
       'type': 'conversation.item.create',
       'item': {
@@ -435,17 +419,14 @@ class RealtimeService {
         'content': [{'type': 'input_text', 'text': text}],
       },
     })));
-    if (_bothTtsEnabled) {
-      _dc!.send(RTCDataChannelMessage(jsonEncode({'type': 'response.create'})));
-    } else {
-      _triggerDirectionalResponse(text);
-    }
+    _dc!.send(RTCDataChannelMessage(jsonEncode({'type': 'response.create'})));
   }
 
   Future<void> stop() async {
     _active = false;
     _aiHold = false;
     _cancelUnmuteWatchdog();
+    _safeUnmuteTimer?.cancel();
     _dc?.close();
     _dc = null;
     _localStream?.getTracks().forEach((t) => t.stop());
@@ -463,7 +444,9 @@ class RealtimeService {
     await _pc?.close();
     _pc = null;
     turns.clear();
+    _itemToResponse.clear();
     currentResponseId = null;
-    lastUserTranscript = '';
+    _lastUserItemId = null;
+    _pendingTextInput = null;
   }
 }

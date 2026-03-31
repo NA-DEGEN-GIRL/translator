@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import '../models/language.dart';
+import '../prompts.dart';
 
-class SettingsSheet extends StatelessWidget {
+class SettingsSheet extends StatefulWidget {
   static const _chatModels = {
     'gpt-5.4-nano': '5.4-nano',
     'gpt-5.4-mini': '5.4-mini',
@@ -47,6 +48,19 @@ class SettingsSheet extends StatelessWidget {
   final ValueChanged<int> onPauseSecondsChanged;
   final ValueChanged<double> onNoiseThresholdChanged;
   final ValueChanged<double> onVadThresholdChanged;
+  final bool deleteConversationItems;
+  final ValueChanged<bool> onDeleteConversationItemsChanged;
+  final String detectModel;
+  final bool backTranslateSource;
+  final bool backTranslateTarget;
+  final bool showPronunciation;
+  final ValueChanged<String> onDetectModelChanged;
+  final ValueChanged<bool> onBackTranslateSourceChanged;
+  final ValueChanged<bool> onBackTranslateTargetChanged;
+  final ValueChanged<bool> onShowPronunciationChanged;
+  final PromptTemplateSet promptTemplates;
+  final Future<void> Function(String key, String value) onPromptChanged;
+  final Future<void> Function(String key) onPromptReset;
   final VoidCallback onResetApiKey;
 
   const SettingsSheet({
@@ -90,13 +104,75 @@ class SettingsSheet extends StatelessWidget {
     required this.onPauseSecondsChanged,
     required this.onNoiseThresholdChanged,
     required this.onVadThresholdChanged,
+    this.deleteConversationItems = true,
+    required this.onDeleteConversationItemsChanged,
+    this.detectModel = 'gpt-5.4-nano',
+    this.backTranslateSource = true,
+    this.backTranslateTarget = true,
+    this.showPronunciation = false,
+    required this.onDetectModelChanged,
+    required this.onBackTranslateSourceChanged,
+    required this.onBackTranslateTargetChanged,
+    required this.onShowPronunciationChanged,
+    required this.promptTemplates,
+    required this.onPromptChanged,
+    required this.onPromptReset,
     required this.onResetApiKey,
   });
 
   @override
+  State<SettingsSheet> createState() => _SettingsSheetState();
+}
+
+class _SettingsSheetState extends State<SettingsSheet> {
+  late final TextEditingController _translationPromptController;
+  late final TextEditingController _assistantPromptController;
+  late final TextEditingController _ttsPromptController;
+  late final TextEditingController _realtimePromptController;
+  late final TextEditingController _postProcessPromptController;
+
+  @override
+  void initState() {
+    super.initState();
+    _translationPromptController = TextEditingController(text: widget.promptTemplates.translationSystem);
+    _assistantPromptController = TextEditingController(text: widget.promptTemplates.assistantSystem);
+    _ttsPromptController = TextEditingController(text: widget.promptTemplates.ttsInstructions);
+    _realtimePromptController = TextEditingController(text: widget.promptTemplates.realtimeTranslation);
+    _postProcessPromptController = TextEditingController(text: widget.promptTemplates.postProcess);
+  }
+
+  @override
+  void didUpdateWidget(covariant SettingsSheet oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _syncController(_translationPromptController, widget.promptTemplates.translationSystem);
+    _syncController(_assistantPromptController, widget.promptTemplates.assistantSystem);
+    _syncController(_ttsPromptController, widget.promptTemplates.ttsInstructions);
+    _syncController(_realtimePromptController, widget.promptTemplates.realtimeTranslation);
+    _syncController(_postProcessPromptController, widget.promptTemplates.postProcess);
+  }
+
+  void _syncController(TextEditingController controller, String value) {
+    if (controller.text == value) return;
+    controller.value = TextEditingValue(
+      text: value,
+      selection: TextSelection.collapsed(offset: value.length),
+    );
+  }
+
+  @override
+  void dispose() {
+    _translationPromptController.dispose();
+    _assistantPromptController.dispose();
+    _ttsPromptController.dispose();
+    _realtimePromptController.dispose();
+    _postProcessPromptController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final srcLang = getLangByCode(sourceLang);
-    final tgtLang = getLangByCode(targetLang);
+    final srcLang = getLangByCode(widget.sourceLang);
+    final tgtLang = getLangByCode(widget.targetLang);
 
     return DraggableScrollableSheet(
       initialChildSize: 0.7,
@@ -138,16 +214,16 @@ class SettingsSheet extends StatelessWidget {
 
               // === 언어 ===
               _sectionTitle('언어'),
-              _langSelector('소스', sourceLang, onSourceLangChanged),
+              _langSelector('소스', widget.sourceLang, widget.onSourceLangChanged),
               const SizedBox(height: 8),
-              _langSelector('타겟', targetLang, onTargetLangChanged),
+              _langSelector('타겟', widget.targetLang, widget.onTargetLangChanged),
               // Swap button
               Center(
                 child: IconButton(
                   icon: const Icon(Icons.swap_vert, size: 20),
                   onPressed: () {
-                    onSourceLangChanged(targetLang);
-                    onTargetLangChanged(sourceLang);
+                    widget.onSourceLangChanged(widget.targetLang);
+                    widget.onTargetLangChanged(widget.sourceLang);
                   },
                 ),
               ),
@@ -159,15 +235,15 @@ class SettingsSheet extends StatelessWidget {
                   ButtonSegment(value: 'face', label: Text('대면')),
                   ButtonSegment(value: 'one', label: Text('단방향')),
                 ],
-                selected: {displayMode},
-                onSelectionChanged: (v) => onDisplayModeChanged(v.first),
+                selected: {widget.displayMode},
+                onSelectionChanged: (v) => widget.onDisplayModeChanged(v.first),
                 style: SegmentedButton.styleFrom(
                   textStyle: const TextStyle(fontSize: 12),
                 ),
               ),
               const SizedBox(height: 4),
               Text(
-                displayMode == 'face'
+                widget.displayMode == 'face'
                     ? '상대방 화면이 180° 회전 (테이블에 놓고 대화)'
                     : '양쪽 화면이 같은 방향 (내가 둘 다 봄)',
                 style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
@@ -176,24 +252,24 @@ class SettingsSheet extends StatelessWidget {
 
               // === 모드 ===
               _sectionTitle('모드 / 모델'),
-              _dropdownTile('모드', mode, {
+              _dropdownTile('모드', widget.mode, {
                 'openai': 'Ping-Pong',
                 'realtime': 'Realtime',
-              }, onModeChanged),
-              if (mode == 'realtime')
-                _dropdownTile('RT 모델', realtimeModel, {
+              }, widget.onModeChanged),
+              if (widget.mode == 'realtime')
+                _dropdownTile('RT 모델', widget.realtimeModel, {
                   'gpt-realtime-mini': 'mini',
                   'gpt-realtime': 'standard',
                   'gpt-realtime-1.5': '1.5',
-                }, onRealtimeModelChanged)
+                }, widget.onRealtimeModelChanged)
               else
-                _dropdownTile('번역 모델', model, _chatModels, onModelChanged),
-              _dropdownTile('번역 톤', toneMode, {
+                _dropdownTile('번역 모델', widget.model, SettingsSheet._chatModels, widget.onModelChanged),
+              _dropdownTile('번역 톤', widget.toneMode, {
                 'normal': '기본',
                 'polite': '예의',
                 'casual': '친구',
-              }, onToneModeChanged),
-              if (realtimeActive)
+              }, widget.onToneModeChanged),
+              if (widget.realtimeActive)
                 const Padding(
                   padding: EdgeInsets.only(left: 80, bottom: 4),
                   child: Text('⟳ Realtime 재시작 시 적용', style: TextStyle(fontSize: 10, color: Colors.orange)),
@@ -202,8 +278,8 @@ class SettingsSheet extends StatelessWidget {
 
               // === AI 어시스턴트 ===
               _sectionTitle('AI 어시스턴트'),
-              _dropdownTile('AI 모델', aiModel, _chatModels, onAiModelChanged),
-              _dropdownTile('AI 묵음', aiPauseSeconds.toString(), {
+              _dropdownTile('AI 모델', widget.aiModel, SettingsSheet._chatModels, widget.onAiModelChanged),
+              _dropdownTile('AI 묵음', widget.aiPauseSeconds.toString(), {
                 '1': '1s',
                 '2': '2s',
                 '3': '3s',
@@ -211,52 +287,122 @@ class SettingsSheet extends StatelessWidget {
                 '7': '7s',
                 '10': '10s',
                 '30': 'OFF',
-              }, (v) => onAiPauseSecondsChanged(int.parse(v))),
+              }, (v) => widget.onAiPauseSecondsChanged(int.parse(v))),
+              const SizedBox(height: 12),
+
+              // === 역번역 / 발음 ===
+              _sectionTitle('역번역 / 발음'),
+              _switchTile('${srcLang.name} 역번역', widget.backTranslateSource, widget.onBackTranslateSourceChanged),
+              _switchTile('${tgtLang.name} 역번역', widget.backTranslateTarget, widget.onBackTranslateTargetChanged),
+              _switchTile('한국어 발음 표시', widget.showPronunciation, widget.onShowPronunciationChanged),
+              if (widget.mode == 'realtime')
+                _dropdownTile('탐지 모델', widget.detectModel, SettingsSheet._chatModels, widget.onDetectModelChanged),
               const SizedBox(height: 12),
 
               // === 음성 출력 ===
               _sectionTitle('음성 출력'),
-              _switchTile('${srcLang.name} TTS', ttsSourceEnabled, onTtsSourceChanged),
-              if (ttsSourceEnabled && mode != 'realtime')
-                _dropdownTile('음성', voiceSource, {'nova': '여', 'onyx': '남', 'ash': '남2', 'coral': '여2'}, onVoiceSourceChanged),
-              _switchTile('${tgtLang.name} TTS', ttsTargetEnabled, onTtsTargetChanged),
-              if (ttsTargetEnabled && mode != 'realtime')
-                _dropdownTile('음성', voiceTarget, {'nova': '여', 'onyx': '남', 'ash': '남2', 'coral': '여2'}, onVoiceTargetChanged),
-              if (mode == 'realtime')
-                _dropdownTile('RT 음성', realtimeVoice, {'coral': '여', 'ash': '남', 'sage': '중성', 'verse': '부드러움'}, onRealtimeVoiceChanged),
-              if (realtimeActive)
-                const Padding(
-                  padding: EdgeInsets.only(left: 80, bottom: 4),
-                  child: Text('⟳ Realtime 재시작 시 적용', style: TextStyle(fontSize: 10, color: Colors.orange)),
-                ),
-              _dropdownTile('크기', fontSize.toInt().toString(), {
+              if (widget.mode == 'realtime') ...[
+                _switchTile('음성 출력', widget.ttsTargetEnabled, widget.onTtsTargetChanged),
+                _dropdownTile('RT 음성', widget.realtimeVoice, {'coral': '여', 'ash': '남', 'sage': '중성', 'verse': '부드러움'}, widget.onRealtimeVoiceChanged),
+                if (widget.realtimeActive)
+                  const Padding(
+                    padding: EdgeInsets.only(left: 80, bottom: 4),
+                    child: Text('⟳ Realtime 재시작 시 적용', style: TextStyle(fontSize: 10, color: Colors.orange)),
+                  ),
+              ] else ...[
+                _switchTile('${srcLang.name} TTS', widget.ttsSourceEnabled, widget.onTtsSourceChanged),
+                if (widget.ttsSourceEnabled)
+                  _dropdownTile('음성', widget.voiceSource, {'nova': '여', 'onyx': '남', 'ash': '남2', 'coral': '여2'}, widget.onVoiceSourceChanged),
+                _switchTile('${tgtLang.name} TTS', widget.ttsTargetEnabled, widget.onTtsTargetChanged),
+                if (widget.ttsTargetEnabled)
+                  _dropdownTile('음성', widget.voiceTarget, {'nova': '여', 'onyx': '남', 'ash': '남2', 'coral': '여2'}, widget.onVoiceTargetChanged),
+              ],
+              _dropdownTile('크기', widget.fontSize.toInt().toString(), {
                 '12': '12', '14': '14', '16': '16', '18': '18',
                 '20': '20', '24': '24', '28': '28', '32': '32',
-              }, (v) => onFontSizeChanged(double.parse(v))),
+              }, (v) => widget.onFontSizeChanged(double.parse(v))),
               // TTS speed (legacy browser mode removed)
               const SizedBox(height: 12),
 
               // === 입력 감지 ===
-              if (mode != 'realtime') ...[
+              if (widget.mode != 'realtime') ...[
                 _sectionTitle('입력 감지'),
-                _dropdownTile('묵음 타임아웃', pauseSeconds.toString(), {
+                _dropdownTile('묵음 타임아웃', widget.pauseSeconds.toString(), {
                   '1': '1s', '2': '2s', '3': '3s', '5': '5s', '7': '7s', '30': 'OFF',
-                }, (v) => onPauseSecondsChanged(int.parse(v))),
-                if (mode == 'openai')
-                  _dropdownTile('소음 기준', noiseThreshold.toInt().toString(), {
-                    '-20': '높음 (시끄러운 환경)',
-                    '-30': '보통',
-                    '-40': '낮음',
-                    '-50': '조용한 환경',
-                  }, (v) => onNoiseThresholdChanged(double.parse(v))),
+                }, (v) => widget.onPauseSecondsChanged(int.parse(v))),
+                if (widget.mode == 'openai')
+                  _dropdownTile('소음 기준', widget.noiseThreshold.toInt().toString(), {
+                    '-20': '-20 (시끄러운 환경)',
+                    '-30': '-30',
+                    '-40': '-40',
+                    '-50': '-50',
+                    '-60': '-60 (웹 기본)',
+                    '-70': '-70',
+                    '-80': '-80 (조용한 환경)',
+                  }, (v) => widget.onNoiseThresholdChanged(double.parse(v))),
               ],
-              if (mode == 'realtime') ...[
+              if (widget.mode == 'realtime') ...[
                 _sectionTitle('Realtime 설정'),
-                _dropdownTile('VAD 감도', vadThreshold.toString(), {
+                _dropdownTile('VAD 감도', widget.vadThreshold.toString(), {
                   '0.3': '0.3', '0.5': '0.5', '0.7': '0.7',
                   '0.8': '0.8', '0.9': '0.9', '0.95': '0.95',
-                }, (v) => onVadThresholdChanged(double.parse(v))),
+                }, (v) => widget.onVadThresholdChanged(double.parse(v))),
+                _switchTile('대화 기록 삭제', widget.deleteConversationItems, widget.onDeleteConversationItemsChanged),
               ],
+              const SizedBox(height: 12),
+
+              // === 프롬프트 ===
+              _sectionTitle('프롬프트'),
+              const Text(
+                '사용 가능한 placeholder: {{SOURCE_LANG}}, {{TARGET_LANG}}, {{TONE_INSTRUCTION}}, {{CONTEXT_INSTRUCTION}}',
+                style: TextStyle(fontSize: 11, color: Colors.grey),
+              ),
+              const SizedBox(height: 8),
+              _promptEditor(
+                title: 'translationSystem',
+                storageKey: AppPrompts.translationSystemKey,
+                controller: _translationPromptController,
+                onChanged: widget.onPromptChanged,
+                onReset: widget.onPromptReset,
+                defaultValue: AppPrompts.defaults.translationSystem,
+              ),
+              _promptEditor(
+                title: 'assistantSystem',
+                storageKey: AppPrompts.assistantSystemKey,
+                controller: _assistantPromptController,
+                onChanged: widget.onPromptChanged,
+                onReset: widget.onPromptReset,
+                defaultValue: AppPrompts.defaults.assistantSystem,
+              ),
+              _promptEditor(
+                title: 'ttsInstructions',
+                storageKey: AppPrompts.ttsInstructionsKey,
+                controller: _ttsPromptController,
+                onChanged: widget.onPromptChanged,
+                onReset: widget.onPromptReset,
+                defaultValue: AppPrompts.defaults.ttsInstructions,
+              ),
+              _promptEditor(
+                title: 'realtimeTranslation',
+                storageKey: AppPrompts.realtimeTranslationKey,
+                controller: _realtimePromptController,
+                onChanged: widget.onPromptChanged,
+                onReset: widget.onPromptReset,
+                defaultValue: AppPrompts.defaults.realtimeTranslation,
+              ),
+              _promptEditor(
+                title: 'postProcess',
+                storageKey: AppPrompts.postProcessKey,
+                controller: _postProcessPromptController,
+                onChanged: widget.onPromptChanged,
+                onReset: widget.onPromptReset,
+                defaultValue: AppPrompts.defaults.postProcess,
+              ),
+              if (widget.realtimeActive)
+                const Padding(
+                  padding: EdgeInsets.only(bottom: 8),
+                  child: Text('Realtime 프롬프트 수정은 다음 Realtime 시작부터 적용됩니다.', style: TextStyle(fontSize: 10, color: Colors.orange)),
+                ),
               const SizedBox(height: 12),
 
               // === 기타 ===
@@ -265,7 +411,7 @@ class SettingsSheet extends StatelessWidget {
                 leading: const Icon(Icons.key_off, color: Colors.red),
                 title: const Text('API 키 초기화'),
                 subtitle: const Text('저장된 키를 삭제하고 입력 화면으로'),
-                onTap: onResetApiKey,
+                onTap: widget.onResetApiKey,
                 dense: true,
               ),
               const SizedBox(height: 24),
@@ -339,6 +485,51 @@ class SettingsSheet extends StatelessWidget {
       onChanged: onChanged,
       dense: true,
       contentPadding: EdgeInsets.zero,
+    );
+  }
+
+  Widget _promptEditor({
+    required String title,
+    required String storageKey,
+    required TextEditingController controller,
+    required Future<void> Function(String key, String value) onChanged,
+    required Future<void> Function(String key) onReset,
+    required String defaultValue,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(title, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+              ),
+              TextButton(
+                onPressed: () async {
+                  await onReset(storageKey);
+                  if (!mounted) return;
+                  setState(() => controller.text = defaultValue);
+                },
+                child: const Text('리셋'),
+              ),
+            ],
+          ),
+          TextField(
+            controller: controller,
+            minLines: 4,
+            maxLines: 10,
+            onChanged: (value) => onChanged(storageKey, value),
+            decoration: const InputDecoration(
+              isDense: true,
+              border: OutlineInputBorder(),
+              contentPadding: EdgeInsets.all(10),
+            ),
+            style: const TextStyle(fontSize: 12, height: 1.35),
+          ),
+        ],
+      ),
     );
   }
 }

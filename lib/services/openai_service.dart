@@ -15,14 +15,15 @@ class OpenAIService {
     String targetLang = 'Japanese',
     String model = 'gpt-5.4-nano',
     ToneMode tone = ToneMode.normal,
+    String? systemPrompt,
   }) async {
-    final systemPrompt = AppPrompts.translationSystem(
+    final prompt = systemPrompt ?? AppPrompts.translationSystem(
       PromptLanguagePair(sourceLang: sourceLang, targetLang: targetLang),
       tone: tone,
     );
 
     final messages = <Map<String, String>>[
-      {'role': 'system', 'content': systemPrompt},
+      {'role': 'system', 'content': prompt},
     ];
 
     messages.add({'role': 'user', 'content': text});
@@ -56,9 +57,9 @@ class OpenAIService {
     }
   }
 
-  Future<Uint8List> tts(String text, String lang, {String? voice}) async {
+  Future<Uint8List> tts(String text, String lang, {String? voice, String? instructions}) async {
     final defaultVoice = voice ?? 'nova';
-    final instructions = AppPrompts.ttsInstructions;
+    final prompt = instructions ?? AppPrompts.ttsInstructions();
 
     final response = await http.post(
       Uri.parse('https://api.openai.com/v1/audio/speech'),
@@ -70,7 +71,7 @@ class OpenAIService {
         'model': 'gpt-4o-mini-tts',
         'voice': voice ?? defaultVoice,
         'input': text,
-        'instructions': instructions,
+        'instructions': prompt,
         'speed': 1.15,
       }),
     ).timeout(_timeout);
@@ -114,13 +115,14 @@ class OpenAIService {
   Future<String> askAssistant(String question, {
     List<Map<String, String>> conversationContext = const [],
     String model = 'gpt-5.4-nano',
+    String? systemPrompt,
   }) async {
-    final systemPrompt = AppPrompts.assistantSystem(
+    final prompt = systemPrompt ?? AppPrompts.assistantSystem(
       hasContext: conversationContext.isNotEmpty,
     );
 
     final messages = <Map<String, String>>[
-      {'role': 'system', 'content': systemPrompt},
+      {'role': 'system', 'content': prompt},
     ];
 
     if (conversationContext.isNotEmpty) {
