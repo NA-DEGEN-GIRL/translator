@@ -998,7 +998,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
         final result = await _openai.askAssistant(
           'Which language is this text? Reply with ONLY one word: $srcName or $tgtName\n\nText: $output',
           model: _detectModel,
-          systemPrompt: 'You are a language classifier. Reply with exactly one language name. No explanation.',
+          systemPrompt: 'You are a language classifier. The text is either $srcName or $tgtName. Reply with exactly one of these two names. No explanation.',
           temperature: 0.1,
         );
         final answer = result.trim().toLowerCase();
