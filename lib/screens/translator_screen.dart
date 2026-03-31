@@ -459,6 +459,14 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
       if (mounted) {
         setState(() => _messages.add(msg));
         _scrollToBottom();
+
+        // TTS immediately after showing translation (non-blocking)
+        if (translated.isNotEmpty) {
+          final ttsLangCode = direction == 'source2target' ? _targetLang : _sourceLang;
+          final shouldPlay = direction == 'source2target' ? _ttsTargetEnabled : _ttsSourceEnabled;
+          final voice = direction == 'source2target' ? _voiceTarget : _voiceSource;
+          if (shouldPlay) _playOpenAITTS(translated, ttsLangCode, voice);
+        }
       }
 
       // Async back-translation for verification (per-language setting)
@@ -524,15 +532,6 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
       if (mounted) setState(() => _isProcessing = false);
     }
 
-    // TTS after processing flag released
-    if (translated.isNotEmpty) {
-      final ttsLangCode = direction == 'source2target' ? _targetLang : _sourceLang;
-      final shouldPlay = direction == 'source2target' ? _ttsTargetEnabled : _ttsSourceEnabled;
-      final voice = direction == 'source2target' ? _voiceTarget : _voiceSource;
-      if (shouldPlay) {
-        _playOpenAITTS(translated, ttsLangCode, voice);
-      }
-    }
   }
 
   Future<void> _playOpenAITTS(String text, String lang, String voice) async {
