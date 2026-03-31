@@ -322,6 +322,26 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
   }
 
   static const _latinLangs = {'en', 'de', 'fr', 'vi'};
+  static const _micHints = {
+    'ko': '이 버튼을 누르고 말씀하세요',
+    'ja': 'このボタンを押して話してください',
+    'zh': '请按此按钮后说话',
+    'en': 'Press this button and speak',
+    'de': 'Drücken Sie diese Taste und sprechen Sie',
+    'fr': 'Appuyez sur ce bouton et parlez',
+    'vi': 'Nhấn nút này và nói',
+    'ru': 'Нажмите эту кнопку и говорите',
+  };
+  static const _realtimeHints = {
+    'ko': '그대로 말씀하세요',
+    'ja': 'そのまま話してください',
+    'zh': '请直接说话',
+    'en': 'Just speak',
+    'de': 'Sprechen Sie einfach',
+    'fr': 'Parlez simplement',
+    'vi': 'Hãy nói',
+    'ru': 'Просто говорите',
+  };
   bool _isLatinLang(String code) => _latinLangs.contains(code);
 
   String? _detectLang(String text) {
@@ -1487,7 +1507,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
                             ),
                           if (_mode == 'realtime')
                             Text(
-                              'そのまま話してください',
+                              _realtimeHints[_targetLang] ?? 'Just speak',
                               style: TextStyle(fontSize: 10, color: Colors.grey),
                             )
                           else
@@ -1506,7 +1526,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
                                 ),
                                 const SizedBox(width: 8),
                                 Text(
-                                  '${getLangByCode(_targetLang).name}→${getLangByCode(_sourceLang).name}',
+                                  _micHints[_targetLang] ?? 'Press and speak',
                                   style: TextStyle(fontSize: 10, color: Colors.grey),
                                 ),
                               ],
