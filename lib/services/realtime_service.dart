@@ -302,6 +302,7 @@ class RealtimeService {
   }
 
   bool _aiHold = false;
+  bool _manualMute = false; // set by external muteMic(true), prevents auto-unmute
 
   void enterAIHold() {
     _aiHold = true;
@@ -319,6 +320,7 @@ class RealtimeService {
 
   void muteMic(bool mute) {
     if (_aiHold) return;
+    _manualMute = mute;
     _localTrack?.enabled = !mute;
     if (!mute) {
       _cancelUnmuteWatchdog();
@@ -329,7 +331,7 @@ class RealtimeService {
   void _startUnmuteWatchdog() {
     _cancelUnmuteWatchdog();
     _unmuteWatchdog = Timer(const Duration(seconds: 15), () {
-      if (_active && !_aiHold) {
+      if (_active && !_aiHold && !_manualMute) {
         _localTrack?.enabled = true;
         onEvent('watchdog_unmute', {});
       }
@@ -342,11 +344,11 @@ class RealtimeService {
   }
 
   void _safeUnmute() {
-    if (_aiHold) return;
+    if (_aiHold || _manualMute) return; // don't auto-unmute if manually muted
     _cancelUnmuteWatchdog();
     _safeUnmuteTimer?.cancel();
     _safeUnmuteTimer = Timer(const Duration(milliseconds: 500), () {
-      if (_active && !_aiHold) _localTrack?.enabled = true;
+      if (_active && !_aiHold && !_manualMute) _localTrack?.enabled = true;
     });
   }
 
@@ -443,6 +445,7 @@ class RealtimeService {
   Future<void> stop() async {
     _active = false;
     _aiHold = false;
+    _manualMute = false;
     _cancelUnmuteWatchdog();
     _safeUnmuteTimer?.cancel();
     _dc?.close();
