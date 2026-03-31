@@ -429,6 +429,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
                 final pronResult = await _openai.askAssistant(
                   'Write the Korean pronunciation (한국어 발음) of this text. Reply with ONLY the pronunciation: $textToPronounce',
                   model: 'gpt-5.4-nano',
+                  temperature: 0.3,
                 );
                 pron = pronResult.trim();
               } catch (_) {}
@@ -998,6 +999,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
           'Which language is this text? Reply with ONLY one word: $srcName or $tgtName\n\nText: $output',
           model: _detectModel,
           systemPrompt: 'You are a language classifier. Reply with exactly one language name. No explanation.',
+          temperature: 0.1,
         );
         final answer = result.trim().toLowerCase();
         if (answer.contains(tgtName.toLowerCase())) {
@@ -1051,6 +1053,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
           final result = await _openai.askAssistant(
             'Write the Korean pronunciation (한국어 발음) of this text. Reply with ONLY the pronunciation, nothing else: $textToPronounce',
             model: _detectModel,
+            temperature: 0.3,
           );
           final p = result.trim();
           if (p.isNotEmpty) pronunciation = p;

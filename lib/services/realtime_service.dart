@@ -215,15 +215,16 @@ class RealtimeService {
         debugPrint('[RT] response.created: id=$respId userItem=$_lastUserItemId');
         if (respId != null) {
           currentResponseId = respId;
-          final turn = RealtimeTurn()..userItemId = _lastUserItemId;
-          // For text input, set input immediately (no transcript event)
+          final userItem = _lastUserItemId;
+          _lastUserItemId = null; // consume to prevent stale reuse
+          final turn = RealtimeTurn()..userItemId = userItem;
           if (_pendingTextInput != null) {
             turn.input = _pendingTextInput!;
             _pendingTextInput = null;
           }
           turns[respId] = turn;
-          if (_lastUserItemId != null) {
-            _itemToResponse[_lastUserItemId!] = respId;
+          if (userItem != null) {
+            _itemToResponse[userItem] = respId;
           }
         }
         break;
@@ -398,6 +399,7 @@ class RealtimeService {
     _itemToResponse.clear();
     currentResponseId = null;
     _lastUserItemId = null;
+    _pendingTextInput = null;
   }
 
   void sendCancel() {

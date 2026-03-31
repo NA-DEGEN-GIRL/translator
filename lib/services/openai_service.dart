@@ -118,6 +118,7 @@ class OpenAIService {
     List<Map<String, String>> conversationContext = const [],
     String model = 'gpt-5.4-nano',
     String? systemPrompt,
+    double temperature = 0.7,
   }) async {
     final prompt = systemPrompt ?? AppPrompts.assistantSystem(
       hasContext: conversationContext.isNotEmpty,
@@ -144,7 +145,7 @@ class OpenAIService {
       body: jsonEncode({
         'model': model,
         'messages': messages,
-        'temperature': 0.7,
+        'temperature': temperature,
       }),
     ).timeout(_timeout);
 
