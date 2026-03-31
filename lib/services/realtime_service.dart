@@ -185,7 +185,8 @@ class RealtimeService {
 
       case 'session.created':
         final createdInstr = event['session']?['instructions'] as String? ?? '';
-        debugPrint('[RT] session.created: instructionsLen=${createdInstr.length} first100="${createdInstr.substring(0, createdInstr.length > 100 ? 100 : createdInstr.length)}"');
+        final vadConfig = event['session']?['audio']?['input']?['turn_detection'];
+        debugPrint('[RT] session.created: instructionsLen=${createdInstr.length} vad=$vadConfig');
         // Inject few-shot as conversation items (critical for audio model to follow translation behavior)
         if (_dc?.state == RTCDataChannelState.RTCDataChannelOpen) {
           _injectFewShotExamples();

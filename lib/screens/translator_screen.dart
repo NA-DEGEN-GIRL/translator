@@ -427,7 +427,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
             if (textToPronounce != null) {
               try {
                 final pronResult = await _openai.askAssistant(
-                  'Write the Korean pronunciation (한국어 발음) of this text. Reply with ONLY the pronunciation: $textToPronounce',
+                  'Write how this text sounds using Korean characters (한글로 발음 표기). Example: こんにちは → 곤니치와. Reply with ONLY the 한글 pronunciation: $textToPronounce',
                   model: 'gpt-5.4-nano',
                   temperature: 0.3,
                 );
@@ -1058,7 +1058,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
       if (textToPronounce != null) {
         try {
           final result = await _openai.askAssistant(
-            'Write the Korean pronunciation (한국어 발음) of this text. Reply with ONLY the pronunciation, nothing else: $textToPronounce',
+            'Write how this text sounds using Korean characters (한글로 발음 표기). Example: こんにちは → 곤니치와. Reply with ONLY the 한글 pronunciation: $textToPronounce',
             model: _detectModel,
             temperature: 0.3,
           );
