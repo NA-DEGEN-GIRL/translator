@@ -906,8 +906,10 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
   void _updateRealtimeAudioMute() {
     if (_realtimeActive) {
       _realtime?.muteAudio(!_ttsTargetEnabled);
-      _realtimeA?.muteAudio(!_ttsTargetEnabled);
-      _realtimeB?.muteAudio(!_ttsTargetEnabled);
+      if (_isDirectionalMode) {
+        _realtimeA?.muteAudio(!_ttsTargetEnabled); // A outputs target lang
+        _realtimeB?.muteAudio(!_ttsSourceEnabled); // B outputs source lang
+      }
     }
   }
 
@@ -1074,6 +1076,12 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
         : '${_targetLang}2${_sourceLang}';
 
     switch (type) {
+      case 'response.created':
+        // Per-direction audio: sessionA output = target lang, sessionB output = source lang
+        final wantAudio = session == 'a' ? _ttsTargetEnabled : _ttsSourceEnabled;
+        rt.muteAudio(!wantAudio);
+        break;
+
       case 'input_audio_buffer.speech_started':
         setState(() {
           _interimText = '듣고 있습니다...';

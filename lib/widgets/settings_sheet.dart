@@ -339,7 +339,16 @@ class _SettingsSheetState extends State<SettingsSheet> {
 
               // === 음성 출력 ===
               _sectionTitle('음성 출력'),
-              if (_isRt) ...[
+              if (widget.mode == 'realtime_dir') ...[
+                _switchTile('${srcLang.name} 번역 TTS', widget.ttsSourceEnabled, widget.onTtsSourceChanged),
+                _switchTile('${tgtLang.name} 번역 TTS', widget.ttsTargetEnabled, widget.onTtsTargetChanged),
+                _dropdownTile('RT 음성', widget.realtimeVoice, {'coral': '여', 'ash': '남', 'sage': '중성', 'verse': '부드러움'}, widget.onRealtimeVoiceChanged),
+                if (widget.realtimeActive)
+                  const Padding(
+                    padding: EdgeInsets.only(left: 80, bottom: 4),
+                    child: Text('⟳ Realtime 재시작 시 적용', style: TextStyle(fontSize: 10, color: Colors.orange)),
+                  ),
+              ] else if (widget.mode == 'realtime') ...[
                 _switchTile('음성 출력', widget.ttsTargetEnabled, widget.onTtsTargetChanged),
                 _dropdownTile('RT 음성', widget.realtimeVoice, {'coral': '여', 'ash': '남', 'sage': '중성', 'verse': '부드러움'}, widget.onRealtimeVoiceChanged),
                 if (widget.realtimeActive)
