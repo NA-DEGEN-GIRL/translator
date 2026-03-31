@@ -50,6 +50,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
   RealtimeService? _realtimeA; // source → target
   RealtimeService? _realtimeB; // target → source
   String _activeDirectionalSession = 'a';
+  bool _directionalPaused = false;
 
   bool get _isRt => _mode == 'realtime' || _mode == 'realtime_dir';
   bool get _isDirectionalMode => _mode == 'realtime_dir';
@@ -959,6 +960,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     _realtimeB?.stop();
     _realtimeA = null;
     _realtimeB = null;
+    _directionalPaused = false;
     setState(() {
       _realtimeActive = false;
       _interimText = '';
@@ -1028,8 +1030,28 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     }
   }
 
+  void _toggleDirectionalPause() {
+    if (!_realtimeActive) return;
+    if (_directionalPaused) {
+      // Resume: unmute the active session
+      if (_activeDirectionalSession == 'a') {
+        _realtimeA?.muteMic(false);
+      } else {
+        _realtimeB?.muteMic(false);
+      }
+      setState(() => _directionalPaused = false);
+    } else {
+      // Pause: mute both
+      _realtimeA?.muteMic(true);
+      _realtimeB?.muteMic(true);
+      setState(() => _directionalPaused = true);
+    }
+  }
+
   void _switchDirectionalSession(String session) {
-    if (!_realtimeActive || session == _activeDirectionalSession) return;
+    if (!_realtimeActive) return;
+    if (session == _activeDirectionalSession && !_directionalPaused) return;
+    _directionalPaused = false;
     if (_activeDirectionalSession == 'a') {
       _realtimeA?.muteMic(true);
     } else {
@@ -1553,7 +1575,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
             _buildLangMicButton(
               langCode: _sourceLang,
               color: const Color(0xFF4A90D9),
-              isActive: _realtimeActive && _activeDirectionalSession == 'a',
+              isActive: _realtimeActive && !_directionalPaused && _activeDirectionalSession == 'a',
               onTap: () {
                 if (!_realtimeActive) {
                   _startRealtimeDirectional(initialSession: 'a');
@@ -1566,7 +1588,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
             _buildLangMicButton(
               langCode: _targetLang,
               color: const Color(0xFFE85D75),
-              isActive: _realtimeActive && _activeDirectionalSession == 'b',
+              isActive: _realtimeActive && !_directionalPaused && _activeDirectionalSession == 'b',
               onTap: () {
                 if (!_realtimeActive) {
                   _startRealtimeDirectional(initialSession: 'b');
@@ -1576,6 +1598,13 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
               },
             ),
             if (_realtimeActive) ...[
+              const SizedBox(width: 3),
+              _buildCircleButton(
+                icon: _directionalPaused ? Icons.play_arrow : Icons.pause,
+                size: 28,
+                color: _directionalPaused ? Colors.green : Colors.orange,
+                onTap: _toggleDirectionalPause,
+              ),
               const SizedBox(width: 3),
               _buildCircleButton(
                 icon: Icons.stop,
@@ -1758,7 +1787,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
                                 _buildLangMicButton(
                                   langCode: _targetLang,
                                   color: const Color(0xFFE85D75),
-                                  isActive: _realtimeActive && _activeDirectionalSession == 'b',
+                                  isActive: _realtimeActive && !_directionalPaused && _activeDirectionalSession == 'b',
                                   onTap: () {
                                     if (!_realtimeActive) {
                                       _startRealtimeDirectional(initialSession: 'b');
