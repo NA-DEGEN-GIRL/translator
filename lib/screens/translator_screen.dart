@@ -967,7 +967,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
   }
 
   // ===== Realtime (방향) — dual sessions =====
-  Future<void> _startRealtimeDirectional() async {
+  Future<void> _startRealtimeDirectional({String initialSession = 'a'}) async {
     if (_realtimeActive) return;
     setState(() => _interimText = 'Realtime (방향) 연결 중...');
 
@@ -1004,8 +1004,15 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
 
     try {
       await Future.wait([_realtimeA!.start(), _realtimeB!.start()]);
+      // Mute both first, then unmute only the initial session
+      _realtimeA!.muteMic(true);
       _realtimeB!.muteMic(true);
-      _activeDirectionalSession = 'a';
+      if (initialSession == 'a') {
+        _realtimeA!.muteMic(false);
+      } else {
+        _realtimeB!.muteMic(false);
+      }
+      _activeDirectionalSession = initialSession;
       setState(() {
         _realtimeActive = true;
         _interimText = 'Realtime (방향) 활성';
@@ -1549,7 +1556,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
               isActive: _realtimeActive && _activeDirectionalSession == 'a',
               onTap: () {
                 if (!_realtimeActive) {
-                  _startRealtimeDirectional();
+                  _startRealtimeDirectional(initialSession: 'a');
                 } else {
                   _switchDirectionalSession('a');
                 }
@@ -1562,7 +1569,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
               isActive: _realtimeActive && _activeDirectionalSession == 'b',
               onTap: () {
                 if (!_realtimeActive) {
-                  _startRealtimeDirectional().then((_) => _switchDirectionalSession('b'));
+                  _startRealtimeDirectional(initialSession: 'b');
                 } else {
                   _switchDirectionalSession('b');
                 }
@@ -1744,7 +1751,30 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
                                 overflow: TextOverflow.ellipsis,
                               ),
                             ),
-                          if (_isRt)
+                          if (_mode == 'realtime_dir')
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                _buildLangMicButton(
+                                  langCode: _targetLang,
+                                  color: const Color(0xFFE85D75),
+                                  isActive: _realtimeActive && _activeDirectionalSession == 'b',
+                                  onTap: () {
+                                    if (!_realtimeActive) {
+                                      _startRealtimeDirectional(initialSession: 'b');
+                                    } else {
+                                      _switchDirectionalSession('b');
+                                    }
+                                  },
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  _micHints[_targetLang] ?? 'Press and speak',
+                                  style: TextStyle(fontSize: 10, color: Colors.grey),
+                                ),
+                              ],
+                            )
+                          else if (_mode == 'realtime')
                             Text(
                               _realtimeHints[_targetLang] ?? 'Just speak',
                               style: TextStyle(fontSize: 10, color: Colors.grey),

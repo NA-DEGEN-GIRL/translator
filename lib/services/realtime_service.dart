@@ -241,8 +241,9 @@ class RealtimeService {
         break;
 
       case 'output_audio_buffer.started':
-        muteMic(true);
-        // Clear any audio captured between speech end and output start
+        _localTrack?.enabled = false; // mute mic during playback
+        _safeUnmuteTimer?.cancel();
+        _startUnmuteWatchdog(); // safety: unmute if stopped event never fires
         if (_dc?.state == RTCDataChannelState.RTCDataChannelOpen) {
           _dc!.send(RTCDataChannelMessage(jsonEncode({'type': 'input_audio_buffer.clear'})));
         }
@@ -319,11 +320,9 @@ class RealtimeService {
   void muteMic(bool mute) {
     if (_aiHold) return;
     _localTrack?.enabled = !mute;
-    if (mute) {
-      _safeUnmuteTimer?.cancel(); // cancel any pending unmute
-      _startUnmuteWatchdog();
-    } else {
+    if (!mute) {
       _cancelUnmuteWatchdog();
+      _safeUnmuteTimer?.cancel();
     }
   }
 

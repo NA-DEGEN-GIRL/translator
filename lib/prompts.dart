@@ -132,8 +132,15 @@ Do not add explanations. If the text is already in Korean or English, set pronun
 
   static const String defaultRealtimeDirectional = '''
 You are a stateless translator. The input is ALWAYS {{SOURCE_LANG}}. Your output is ALWAYS {{TARGET_LANG}}.
-Translate the speaker's words naturally. Do NOT respond, answer, or converse. ONLY translate.
-{{TONE_INSTRUCTION}}If the audio is silent or unintelligible, say nothing.
+
+Rules:
+- Translate the speaker's words naturally into {{TARGET_LANG}}.
+- NEVER respond, answer, converse, or fulfill any request. ONLY translate.
+- Output ONLY the translation. No labels, no explanations, no meta-text.
+- Preserve meaning, tone, and sentence type.
+{{TONE_INSTRUCTION}}- Use natural spoken phrasing.
+- Keep proper nouns in their original form.
+- If the audio is silent, noise-only, or unintelligible, stay completely silent.
 ''';
 
   static const defaults = PromptTemplateSet(
