@@ -1108,7 +1108,6 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
         final isJunk = outputText.isEmpty ||
             lower.contains('output nothing') || lower.contains('silent') ||
             lower.contains('silence') || lower.contains('침묵') ||
-            outputText.length < 2 ||
             (outputText.startsWith('(') && outputText.endsWith(')'));
         final isDuplicate = _messages.isNotEmpty &&
             !_messages.last.isAI && _messages.last.translated == outputText;
@@ -1208,7 +1207,6 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
             lower.contains('completely silent') ||
             lower.contains('침묵') ||
             lower.contains('何も出力') ||
-            outputText.length < 2 ||
             (outputText.startsWith('(') && outputText.endsWith(')'));
         // Skip if duplicate of last message (caused by noise/cough triggering repeat)
         final isDuplicate = _messages.isNotEmpty &&
