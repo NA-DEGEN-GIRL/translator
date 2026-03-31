@@ -150,10 +150,12 @@ class SettingsSheet extends StatefulWidget {
 }
 
 class _SettingsSheetState extends State<SettingsSheet> {
+  bool get _isRt => widget.mode == 'realtime' || widget.mode == 'realtime_dir';
   late final TextEditingController _translationPromptController;
   late final TextEditingController _assistantPromptController;
   late final TextEditingController _ttsPromptController;
   late final TextEditingController _realtimePromptController;
+  late final TextEditingController _directionalPromptController;
   late final TextEditingController _postProcessPromptController;
 
   @override
@@ -163,6 +165,7 @@ class _SettingsSheetState extends State<SettingsSheet> {
     _assistantPromptController = TextEditingController(text: widget.promptTemplates.assistantSystem);
     _ttsPromptController = TextEditingController(text: widget.promptTemplates.ttsInstructions);
     _realtimePromptController = TextEditingController(text: widget.promptTemplates.realtimeTranslation);
+    _directionalPromptController = TextEditingController(text: widget.promptTemplates.realtimeDirectional);
     _postProcessPromptController = TextEditingController(text: widget.promptTemplates.postProcess);
   }
 
@@ -173,6 +176,7 @@ class _SettingsSheetState extends State<SettingsSheet> {
     _syncController(_assistantPromptController, widget.promptTemplates.assistantSystem);
     _syncController(_ttsPromptController, widget.promptTemplates.ttsInstructions);
     _syncController(_realtimePromptController, widget.promptTemplates.realtimeTranslation);
+    _syncController(_directionalPromptController, widget.promptTemplates.realtimeDirectional);
     _syncController(_postProcessPromptController, widget.promptTemplates.postProcess);
   }
 
@@ -190,6 +194,7 @@ class _SettingsSheetState extends State<SettingsSheet> {
     _assistantPromptController.dispose();
     _ttsPromptController.dispose();
     _realtimePromptController.dispose();
+    _directionalPromptController.dispose();
     _postProcessPromptController.dispose();
     super.dispose();
   }
@@ -280,8 +285,9 @@ class _SettingsSheetState extends State<SettingsSheet> {
               _dropdownTile('모드', widget.mode, {
                 'openai': 'Ping-Pong',
                 'realtime': 'Realtime',
+                'realtime_dir': 'Realtime (방향)',
               }, widget.onModeChanged),
-              if (widget.mode == 'realtime')
+              if (_isRt)
                 _dropdownTile('RT 모델', widget.realtimeModel, {
                   'gpt-realtime-mini': 'mini',
                   'gpt-realtime': 'standard',
@@ -289,7 +295,7 @@ class _SettingsSheetState extends State<SettingsSheet> {
                 }, widget.onRealtimeModelChanged)
               else
                 _dropdownTile('번역 모델', widget.model, SettingsSheet._chatModels, widget.onModelChanged),
-              if (widget.mode != 'realtime') ...[
+              if (!_isRt) ...[
                 _switchTile('대화 맥락 주입', widget.translationContext, widget.onTranslationContextChanged),
                 _dropdownTile('Temperature', widget.translationTemp.toString(), SettingsSheet._tempOptions, (v) => widget.onTranslationTempChanged(double.parse(v))),
               ],
@@ -324,7 +330,7 @@ class _SettingsSheetState extends State<SettingsSheet> {
               _switchTile('${srcLang.name} 역번역', widget.backTranslateSource, widget.onBackTranslateSourceChanged),
               _switchTile('${tgtLang.name} 역번역', widget.backTranslateTarget, widget.onBackTranslateTargetChanged),
               _switchTile('한국어 발음 표시', widget.showPronunciation, widget.onShowPronunciationChanged),
-              if (widget.mode == 'realtime') ...[
+              if (_isRt) ...[
                 _dropdownTile('탐지 모델', widget.detectModel, SettingsSheet._chatModels, widget.onDetectModelChanged),
                 _dropdownTile('분류 Temp', widget.classifyTemp.toString(), SettingsSheet._tempOptions, (v) => widget.onClassifyTempChanged(double.parse(v))),
               ],
@@ -333,7 +339,7 @@ class _SettingsSheetState extends State<SettingsSheet> {
 
               // === 음성 출력 ===
               _sectionTitle('음성 출력'),
-              if (widget.mode == 'realtime') ...[
+              if (_isRt) ...[
                 _switchTile('음성 출력', widget.ttsTargetEnabled, widget.onTtsTargetChanged),
                 _dropdownTile('RT 음성', widget.realtimeVoice, {'coral': '여', 'ash': '남', 'sage': '중성', 'verse': '부드러움'}, widget.onRealtimeVoiceChanged),
                 if (widget.realtimeActive)
@@ -357,7 +363,7 @@ class _SettingsSheetState extends State<SettingsSheet> {
               const SizedBox(height: 12),
 
               // === 입력 감지 ===
-              if (widget.mode != 'realtime') ...[
+              if (!_isRt) ...[
                 _sectionTitle('입력 감지'),
                 _dropdownTile('묵음 타임아웃', widget.pauseSeconds.toString(), {
                   '1': '1s', '2': '2s', '3': '3s', '5': '5s', '7': '7s', '30': 'OFF',
@@ -373,7 +379,7 @@ class _SettingsSheetState extends State<SettingsSheet> {
                     '-80': '-80 (조용한 환경)',
                   }, (v) => widget.onNoiseThresholdChanged(double.parse(v))),
               ],
-              if (widget.mode == 'realtime') ...[
+              if (_isRt) ...[
                 _sectionTitle('Realtime 설정'),
                 _dropdownTile('VAD 감도', widget.vadThreshold.toString(), {
                   '0.3': '0.3', '0.5': '0.5', '0.7': '0.7',
@@ -422,6 +428,14 @@ class _SettingsSheetState extends State<SettingsSheet> {
                 onChanged: widget.onPromptChanged,
                 onReset: widget.onPromptReset,
                 defaultValue: AppPrompts.defaults.realtimeTranslation,
+              ),
+              _promptEditor(
+                title: 'realtimeDirectional',
+                storageKey: AppPrompts.realtimeDirectionalKey,
+                controller: _directionalPromptController,
+                onChanged: widget.onPromptChanged,
+                onReset: widget.onPromptReset,
+                defaultValue: AppPrompts.defaults.realtimeDirectional,
               ),
               _promptEditor(
                 title: 'postProcess',

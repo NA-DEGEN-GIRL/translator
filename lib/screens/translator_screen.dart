@@ -46,6 +46,14 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
   RealtimeService? _realtime;
   bool _realtimeActive = false;
 
+  // Realtime (방향) — dual sessions
+  RealtimeService? _realtimeA; // source → target
+  RealtimeService? _realtimeB; // target → source
+  String _activeDirectionalSession = 'a';
+
+  bool get _isRt => _mode == 'realtime' || _mode == 'realtime_dir';
+  bool get _isDirectionalMode => _mode == 'realtime_dir';
+
   // Settings
   String _textDirection = 'source2target'; // for text input
   bool _aiMode = false;
@@ -101,6 +109,8 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     _speech.stopListening();
     _speech.stopSpeaking();
     _realtime?.stop();
+    _realtimeA?.stop();
+    _realtimeB?.stop();
     _recorder.dispose();
     _textController.dispose();
     _myScrollController.dispose();
@@ -216,7 +226,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
         onAiModelChanged: (v) { setState(() => _aiModel = v); setSheetState((){}); _saveSettings(); },
         onAiPauseSecondsChanged: (v) { setState(() => _aiPauseSeconds = v); setSheetState((){}); _saveSettings(); },
         onModeChanged: (v) {
-          if (v != 'realtime' && _realtimeActive) _stopRealtime();
+          if (!{'realtime', 'realtime_dir'}.contains(v) && _realtimeActive) _stopRealtime();
           setState(() => _mode = v); setSheetState((){}); _saveSettings();
         },
         onModelChanged: (v) { setState(() => _model = v); setSheetState((){}); _saveSettings(); },
@@ -283,6 +293,8 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
         return _promptTemplates.copyWith(ttsInstructions: value);
       case AppPrompts.realtimeTranslationKey:
         return _promptTemplates.copyWith(realtimeTranslation: value);
+      case AppPrompts.realtimeDirectionalKey:
+        return _promptTemplates.copyWith(realtimeDirectional: value);
       case AppPrompts.postProcessKey:
         return _promptTemplates.copyWith(postProcess: value);
       default:
@@ -308,6 +320,14 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
   String get _ttsPrompt => AppPrompts.ttsInstructions(
     template: _promptTemplates.ttsInstructions,
   );
+
+  String _directionalPrompt({required String inputLang, required String outputLang}) {
+    return AppPrompts.realtimeDirectional(
+      PromptLanguagePair(sourceLang: inputLang, targetLang: outputLang),
+      tone: _tone,
+      template: _promptTemplates.realtimeDirectional,
+    );
+  }
 
   String _realtimePrompt() {
     final src = getLangByCode(_sourceLang).name;
@@ -683,8 +703,13 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     _textController.clear();
     if (_aiMode) {
       _handleAIQuestion(text);
-    } else if (_mode == 'realtime' && _realtimeActive) {
-      _realtime?.sendText(text);
+    } else if (_isRt && _realtimeActive) {
+      if (_isDirectionalMode) {
+        final rt = _activeDirectionalSession == 'a' ? _realtimeA : _realtimeB;
+        rt?.sendText(text);
+      } else {
+        _realtime?.sendText(text);
+      }
     } else {
       final detected = _detectLang(text);
       String direction;
@@ -763,8 +788,10 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
   }
 
   void _clearChat() {
-    if (_realtimeActive && _realtime != null) {
-      _realtime!.clearState();
+    if (_realtimeActive) {
+      _realtime?.clearState();
+      _realtimeA?.clearState();
+      _realtimeB?.clearState();
     }
     setState(() {
       _messages.clear();
@@ -877,9 +904,10 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
   }
 
   void _updateRealtimeAudioMute() {
-    if (_realtimeActive && _realtime != null) {
-      // Realtime UI shows single toggle mapped to _ttsTargetEnabled
-      _realtime!.muteAudio(!_ttsTargetEnabled);
+    if (_realtimeActive) {
+      _realtime?.muteAudio(!_ttsTargetEnabled);
+      _realtimeA?.muteAudio(!_ttsTargetEnabled);
+      _realtimeB?.muteAudio(!_ttsTargetEnabled);
     }
   }
 
@@ -927,11 +955,183 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
 
   void _stopRealtime() {
     _realtime?.stop();
+    _realtimeA?.stop();
+    _realtimeB?.stop();
+    _realtimeA = null;
+    _realtimeB = null;
     setState(() {
       _realtimeActive = false;
       _interimText = '';
       _mirrorInterimText = '';
     });
+  }
+
+  // ===== Realtime (방향) — dual sessions =====
+  Future<void> _startRealtimeDirectional() async {
+    if (_realtimeActive) return;
+    setState(() => _interimText = 'Realtime (방향) 연결 중...');
+
+    final srcName = getLangByCode(_sourceLang).name;
+    final tgtName = getLangByCode(_targetLang).name;
+
+    _realtimeA = RealtimeService(
+      apiKey: widget.apiKey,
+      model: _realtimeModel,
+      voice: _realtimeVoice,
+      sourceLangCode: _sourceLang,
+      targetLangCode: _targetLang,
+      vadThreshold: _vadThreshold,
+      tone: _tone,
+      instructions: _directionalPrompt(inputLang: srcName, outputLang: tgtName),
+      deleteConversationItems: _deleteConversationItems,
+      injectFewShot: false,
+      onEvent: (type, event) => _handleDirectionalEvent('a', type, event),
+    );
+
+    _realtimeB = RealtimeService(
+      apiKey: widget.apiKey,
+      model: _realtimeModel,
+      voice: _realtimeVoice,
+      sourceLangCode: _targetLang,
+      targetLangCode: _sourceLang,
+      vadThreshold: _vadThreshold,
+      tone: _tone,
+      instructions: _directionalPrompt(inputLang: tgtName, outputLang: srcName),
+      deleteConversationItems: _deleteConversationItems,
+      injectFewShot: false,
+      onEvent: (type, event) => _handleDirectionalEvent('b', type, event),
+    );
+
+    try {
+      await Future.wait([_realtimeA!.start(), _realtimeB!.start()]);
+      _realtimeB!.muteMic(true);
+      _activeDirectionalSession = 'a';
+      setState(() {
+        _realtimeActive = true;
+        _interimText = 'Realtime (방향) 활성';
+      });
+      _updateRealtimeAudioMute();
+    } catch (e) {
+      await _realtimeA?.stop();
+      await _realtimeB?.stop();
+      _realtimeA = null;
+      _realtimeB = null;
+      _showError(e.toString());
+      if (mounted) setState(() { _realtimeActive = false; _interimText = ''; });
+    }
+  }
+
+  void _switchDirectionalSession(String session) {
+    if (!_realtimeActive || session == _activeDirectionalSession) return;
+    if (_activeDirectionalSession == 'a') {
+      _realtimeA?.muteMic(true);
+    } else {
+      _realtimeB?.muteMic(true);
+    }
+    if (session == 'a') {
+      _realtimeA?.muteMic(false);
+    } else {
+      _realtimeB?.muteMic(false);
+    }
+    setState(() => _activeDirectionalSession = session);
+  }
+
+  void _handleDirectionalEvent(String session, String type, Map<String, dynamic> event) {
+    if (!mounted || !_realtimeActive) return;
+    final rt = session == 'a' ? _realtimeA : _realtimeB;
+    if (rt == null) return;
+    final direction = session == 'a'
+        ? '${_sourceLang}2${_targetLang}'
+        : '${_targetLang}2${_sourceLang}';
+
+    switch (type) {
+      case 'input_audio_buffer.speech_started':
+        setState(() {
+          _interimText = '듣고 있습니다...';
+          _mirrorInterimText = '聞いています...';
+        });
+        break;
+
+      case 'input_audio_buffer.speech_stopped':
+        setState(() {
+          _interimText = '번역 중...';
+          _mirrorInterimText = '翻訳中...';
+        });
+        break;
+
+      case 'response.output_audio_transcript.delta':
+      case 'response.output_text.delta':
+        final rid = event['response_id'] as String?;
+        if (rid != null && rt.turns.containsKey(rid)) {
+          setState(() {
+            _interimText = rt.turns[rid]!.output;
+            _mirrorInterimText = rt.turns[rid]!.output;
+          });
+        }
+        break;
+
+      case 'response.done':
+        final rid = event['response']?['id'] as String?;
+        final turn = rid != null ? rt.turns[rid] : null;
+        final outputText = turn?.output.trim() ?? '';
+        final lower = outputText.toLowerCase();
+        final isJunk = outputText.isEmpty ||
+            lower.contains('output nothing') || lower.contains('silent') ||
+            lower.contains('silence') || lower.contains('침묵') ||
+            outputText.length < 2 ||
+            (outputText.startsWith('(') && outputText.endsWith(')'));
+        final isDuplicate = _messages.isNotEmpty &&
+            !_messages.last.isAI && _messages.last.translated == outputText;
+        if (turn != null && !isJunk && !isDuplicate) {
+          final msg = ChatMessage(
+            original: turn.output,
+            translated: turn.output,
+            direction: direction,
+            turnId: rid,
+          );
+          setState(() {
+            _messages.add(msg);
+            _interimText = '';
+            _mirrorInterimText = '';
+          });
+          _scrollToBottom();
+          final msgIndex = _messages.length - 1;
+          final outputLang = session == 'a' ? _targetLang : _sourceLang;
+          _asyncRealtimePostProcess(msgIndex, turn.output, outputLang);
+          if (rid != null) {
+            Future.delayed(const Duration(seconds: 10), () {
+              rt.turns.remove(rid);
+            });
+          }
+        } else {
+          setState(() { _interimText = ''; _mirrorInterimText = ''; });
+        }
+        break;
+
+      case 'error':
+        final errMsg = event['error']?['message'] ?? '';
+        if (!errMsg.toString().contains('no active response')) {
+          _showError('Realtime: $errMsg');
+        }
+        break;
+
+      case 'connection_lost':
+        _stopRealtime();
+        _showError('Realtime (방향) 연결이 끊어졌습니다');
+        break;
+
+      case 'remote_stream':
+        _updateRealtimeAudioMute();
+        break;
+    }
+  }
+
+  void _startRealtimeAny() {
+    if (_isDirectionalMode) {
+      _startRealtimeDirectional();
+    } else {
+      _startRealtime();
+    }
   }
 
   void _handleRealtimeEvent(String type, Map<String, dynamic> event) {
@@ -1256,7 +1456,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
           ),
           const SizedBox(width: 4),
           // Direction toggle: source→target / target→source (hidden in Realtime)
-          if (!_aiMode && !(_mode == 'realtime' && _realtimeActive))
+          if (!_aiMode && !(_isRt && _realtimeActive))
             GestureDetector(
               onTap: () => setState(() {
                 _textDirection = _textDirection == 'source2target' ? 'target2source' : 'source2target';
@@ -1284,11 +1484,15 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
               if (_isListening || _isRecording) await _stopAll();
               setState(() => _aiMode = !_aiMode);
               // Realtime: enter/exit AI hold
-              if (_realtimeActive && _realtime != null) {
+              if (_realtimeActive) {
                 if (_aiMode) {
-                  _realtime!.enterAIHold();
+                  _realtime?.enterAIHold();
+                  _realtimeA?.enterAIHold();
+                  _realtimeB?.enterAIHold();
                 } else {
-                  _realtime!.exitAIHold();
+                  _realtime?.exitAIHold();
+                  _realtimeA?.exitAIHold();
+                  _realtimeB?.exitAIHold();
                 }
               }
             },
@@ -1337,16 +1541,52 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
             onTap: _sendText,
           ),
           const SizedBox(width: 4),
-          if (_mode == 'realtime' && !_aiMode) ...[
-            // Realtime: single mic button (translation mode)
+          if (_mode == 'realtime_dir' && !_aiMode) ...[
+            // Directional Realtime: two mic buttons + stop
+            _buildLangMicButton(
+              langCode: _sourceLang,
+              color: const Color(0xFF4A90D9),
+              isActive: _realtimeActive && _activeDirectionalSession == 'a',
+              onTap: () {
+                if (!_realtimeActive) {
+                  _startRealtimeDirectional();
+                } else {
+                  _switchDirectionalSession('a');
+                }
+              },
+            ),
+            const SizedBox(width: 3),
+            _buildLangMicButton(
+              langCode: _targetLang,
+              color: const Color(0xFFE85D75),
+              isActive: _realtimeActive && _activeDirectionalSession == 'b',
+              onTap: () {
+                if (!_realtimeActive) {
+                  _startRealtimeDirectional().then((_) => _switchDirectionalSession('b'));
+                } else {
+                  _switchDirectionalSession('b');
+                }
+              },
+            ),
+            if (_realtimeActive) ...[
+              const SizedBox(width: 3),
+              _buildCircleButton(
+                icon: Icons.stop,
+                size: 28,
+                color: Colors.red,
+                onTap: _stopRealtime,
+              ),
+            ],
+          ] else if (_mode == 'realtime' && !_aiMode) ...[
+            // Auto Realtime: single mic button
             _buildCircleButton(
               icon: Icons.mic,
               size: 36,
               color: _realtimeActive ? Colors.red : const Color(0xFF4A90D9),
               onTap: () => _realtimeActive ? _stopRealtime() : _startRealtime(),
             ),
-          ] else if (_mode == 'realtime' && _aiMode) ...[
-            // Realtime + AI mode: use OpenAI STT for AI question
+          ] else if (_isRt && _aiMode) ...[
+            // Realtime + AI mode
             _buildLangMicButton(
               langCode: 'AI',
               color: const Color(0xFF8B5CF6),
@@ -1361,12 +1601,11 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
               },
             ),
             const SizedBox(width: 3),
-            // Still show realtime toggle
             _buildCircleButton(
               icon: Icons.translate,
               size: 28,
               color: _realtimeActive ? Colors.green : Colors.grey,
-              onTap: () => _realtimeActive ? _stopRealtime() : _startRealtime(),
+              onTap: () => _realtimeActive ? _stopRealtime() : _startRealtimeAny(),
               outlined: !_realtimeActive,
             ),
           ] else ...[
@@ -1505,7 +1744,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
                                 overflow: TextOverflow.ellipsis,
                               ),
                             ),
-                          if (_mode == 'realtime')
+                          if (_isRt)
                             Text(
                               _realtimeHints[_targetLang] ?? 'Just speak',
                               style: TextStyle(fontSize: 10, color: Colors.grey),

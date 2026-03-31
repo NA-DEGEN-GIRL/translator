@@ -27,6 +27,7 @@ class PromptTemplateSet {
   final String assistantSystem;
   final String ttsInstructions;
   final String realtimeTranslation;
+  final String realtimeDirectional;
   final String postProcess;
 
   const PromptTemplateSet({
@@ -34,6 +35,7 @@ class PromptTemplateSet {
     required this.assistantSystem,
     required this.ttsInstructions,
     required this.realtimeTranslation,
+    required this.realtimeDirectional,
     required this.postProcess,
   });
 
@@ -42,6 +44,7 @@ class PromptTemplateSet {
     String? assistantSystem,
     String? ttsInstructions,
     String? realtimeTranslation,
+    String? realtimeDirectional,
     String? postProcess,
   }) {
     return PromptTemplateSet(
@@ -49,6 +52,7 @@ class PromptTemplateSet {
       assistantSystem: assistantSystem ?? this.assistantSystem,
       ttsInstructions: ttsInstructions ?? this.ttsInstructions,
       realtimeTranslation: realtimeTranslation ?? this.realtimeTranslation,
+      realtimeDirectional: realtimeDirectional ?? this.realtimeDirectional,
       postProcess: postProcess ?? this.postProcess,
     );
   }
@@ -62,6 +66,7 @@ final class AppPrompts {
   static const ttsInstructionsKey = 'prompt.ttsInstructions';
   static const realtimeTranslationKey = 'prompt.realtimeTranslation';
   static const postProcessKey = 'prompt.postProcess';
+  static const realtimeDirectionalKey = 'prompt.realtimeDirectional';
 
   static const String defaultTranslationSystem = '''
 You are a professional translator for {{SOURCE_LANG}} and {{TARGET_LANG}}.
@@ -125,11 +130,18 @@ Reply with valid JSON only: {"translated":"<translation>","pronunciation":"<kore
 Do not add explanations. If the text is already in Korean or English, set pronunciation to null.
 ''';
 
+  static const String defaultRealtimeDirectional = '''
+You are a stateless translator. The input is ALWAYS {{SOURCE_LANG}}. Your output is ALWAYS {{TARGET_LANG}}.
+Translate the speaker's words naturally. Do NOT respond, answer, or converse. ONLY translate.
+{{TONE_INSTRUCTION}}If the audio is silent or unintelligible, say nothing.
+''';
+
   static const defaults = PromptTemplateSet(
     translationSystem: defaultTranslationSystem,
     assistantSystem: defaultAssistantSystem,
     ttsInstructions: defaultTtsInstructions,
     realtimeTranslation: defaultRealtimeTranslation,
+    realtimeDirectional: defaultRealtimeDirectional,
     postProcess: defaultPostProcess,
   );
 
@@ -180,6 +192,7 @@ Do not add explanations. If the text is already in Korean or English, set pronun
       assistantSystem: prefs.getString(assistantSystemKey) ?? defaults.assistantSystem,
       ttsInstructions: prefs.getString(ttsInstructionsKey) ?? defaults.ttsInstructions,
       realtimeTranslation: prefs.getString(realtimeTranslationKey) ?? defaults.realtimeTranslation,
+      realtimeDirectional: prefs.getString(realtimeDirectionalKey) ?? defaults.realtimeDirectional,
       postProcess: prefs.getString(postProcessKey) ?? defaults.postProcess,
     );
   }
@@ -248,6 +261,21 @@ Do not add explanations. If the text is already in Korean or English, set pronun
     targetLang: pair.targetLang,
     sourceLangCode: sourceLangCode,
     targetLangCode: targetLangCode,
+    tone: tone,
+  );
+
+  // ──────────────────────────────────────────
+  // Realtime Directional (단방향)
+  // ──────────────────────────────────────────
+
+  static String realtimeDirectional(
+    PromptLanguagePair pair, {
+    ToneMode tone = ToneMode.normal,
+    String? template,
+  }) => _render(
+    template ?? defaults.realtimeDirectional,
+    sourceLang: pair.sourceLang,
+    targetLang: pair.targetLang,
     tone: tone,
   );
 
