@@ -113,7 +113,7 @@ Output:
 
 Repetition: if the speaker repeats the same utterance, treat each repetition as a new independent detection task.
 
-Ambiguity: if the audio is silent, noise-only, or unintelligible, output nothing.
+Ambiguity: if the audio is silent, noise-only, or unintelligible, stay completely silent. Do not say anything at all.
 ''';
 
   static const String defaultPostProcess = '''

@@ -921,7 +921,14 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
       case 'response.done':
         final rid = event['response']?['id'] as String?;
         final turn = rid != null ? _realtime!.turns[rid] : null;
-        if (turn != null && turn.output.isNotEmpty) {
+        // Filter out non-translation responses (model outputting meta-text)
+        final outputText = turn?.output.trim() ?? '';
+        final isJunk = outputText.isEmpty ||
+            outputText.toLowerCase().contains('output nothing') ||
+            outputText.toLowerCase().contains('no output') ||
+            outputText.toLowerCase().contains('silence') ||
+            outputText.startsWith('(') && outputText.endsWith(')');
+        if (turn != null && !isJunk) {
           // Try unicode detection first, fallback to nano model
           final outputLang = _detectLang(turn.output);
           final direction = (outputLang != null)

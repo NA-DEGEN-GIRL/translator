@@ -335,7 +335,7 @@ class RealtimeService {
     if (_aiHold) return;
     _cancelUnmuteWatchdog();
     _safeUnmuteTimer?.cancel();
-    _safeUnmuteTimer = Timer(const Duration(milliseconds: 300), () {
+    _safeUnmuteTimer = Timer(const Duration(milliseconds: 500), () {
       if (_active && !_aiHold) _localTrack?.enabled = true;
     });
   }
