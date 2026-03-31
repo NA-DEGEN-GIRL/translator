@@ -403,6 +403,12 @@ class RealtimeService {
 
   String? getResponseIdForItem(String itemId) => _itemToResponse[itemId];
 
+  void clearInputBuffer() {
+    if (_dc?.state == RTCDataChannelState.RTCDataChannelOpen) {
+      _dc!.send(RTCDataChannelMessage(jsonEncode({'type': 'input_audio_buffer.clear'})));
+    }
+  }
+
   void clearState() {
     sendCancel();
     turns.clear();

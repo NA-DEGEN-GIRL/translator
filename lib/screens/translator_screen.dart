@@ -1052,11 +1052,12 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     if (!_realtimeActive) return;
     if (session == _activeDirectionalSession && !_directionalPaused) return;
     _directionalPaused = false;
-    if (_activeDirectionalSession == 'a') {
-      _realtimeA?.muteMic(true);
-    } else {
-      _realtimeB?.muteMic(true);
-    }
+    // Mute both + clear buffers to prevent cross-contamination
+    _realtimeA?.muteMic(true);
+    _realtimeB?.muteMic(true);
+    _realtimeA?.clearInputBuffer();
+    _realtimeB?.clearInputBuffer();
+    // Unmute the target session
     if (session == 'a') {
       _realtimeA?.muteMic(false);
     } else {
