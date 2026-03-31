@@ -79,7 +79,8 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
   bool _backTranslateTarget = true;
   bool _showPronunciation = false;
   bool _deleteConversationItems = true;
-  bool _translationContext = false; // inject conversation context into Ping-Pong translation
+  bool _translationContext = false;
+  double _translationTemp = 0.3; // translation temperature
   PromptTemplateSet _promptTemplates = AppPrompts.defaults;
 
   @override
@@ -136,6 +137,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
       _showPronunciation = prefs.getBool('showPronunciation') ?? false;
       _deleteConversationItems = prefs.getBool('deleteConversationItems') ?? true;
       _translationContext = prefs.getBool('translationContext') ?? false;
+      _translationTemp = prefs.getDouble('translationTemp') ?? 0.3;
       _noiseThreshold = prefs.getDouble('noiseThreshold') ?? (kIsWeb ? -60 : -30);
       _vadThreshold = prefs.getDouble('vadThreshold') ?? 0.9;
       _micLang = _sourceLang;
@@ -168,6 +170,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     prefs.setBool('showPronunciation', _showPronunciation);
     prefs.setBool('deleteConversationItems', _deleteConversationItems);
     prefs.setBool('translationContext', _translationContext);
+    prefs.setDouble('translationTemp', _translationTemp);
     prefs.setDouble('noiseThreshold', _noiseThreshold);
     prefs.setDouble('vadThreshold', _vadThreshold);
   }
@@ -222,6 +225,8 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
         onDeleteConversationItemsChanged: (v) { setState(() => _deleteConversationItems = v); setSheetState((){}); _saveSettings(); },
         translationContext: _translationContext,
         onTranslationContextChanged: (v) { setState(() => _translationContext = v); setSheetState((){}); _saveSettings(); },
+        translationTemp: _translationTemp,
+        onTranslationTempChanged: (v) { setState(() => _translationTemp = v); setSheetState((){}); _saveSettings(); },
         detectModel: _detectModel,
         backTranslateSource: _backTranslateSource,
         backTranslateTarget: _backTranslateTarget,
@@ -374,6 +379,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
         targetLang: direction == 'source2target' ? tgtName : srcName,
         model: _model,
         tone: _tone,
+        temperature: _translationTemp,
         systemPrompt: _translationPrompt(
           sourceLang: direction == 'source2target' ? srcName : tgtName,
           targetLang: direction == 'source2target' ? tgtName : srcName,

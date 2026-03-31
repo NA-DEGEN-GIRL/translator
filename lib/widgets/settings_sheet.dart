@@ -52,6 +52,8 @@ class SettingsSheet extends StatefulWidget {
   final ValueChanged<bool> onDeleteConversationItemsChanged;
   final bool translationContext;
   final ValueChanged<bool> onTranslationContextChanged;
+  final double translationTemp;
+  final ValueChanged<double> onTranslationTempChanged;
   final String detectModel;
   final bool backTranslateSource;
   final bool backTranslateTarget;
@@ -110,6 +112,8 @@ class SettingsSheet extends StatefulWidget {
     required this.onDeleteConversationItemsChanged,
     this.translationContext = false,
     required this.onTranslationContextChanged,
+    this.translationTemp = 0.3,
+    required this.onTranslationTempChanged,
     this.detectModel = 'gpt-5.4-nano',
     this.backTranslateSource = true,
     this.backTranslateTarget = true,
@@ -268,8 +272,13 @@ class _SettingsSheetState extends State<SettingsSheet> {
                 }, widget.onRealtimeModelChanged)
               else
                 _dropdownTile('번역 모델', widget.model, SettingsSheet._chatModels, widget.onModelChanged),
-              if (widget.mode != 'realtime')
+              if (widget.mode != 'realtime') ...[
                 _switchTile('대화 맥락 주입', widget.translationContext, widget.onTranslationContextChanged),
+                _dropdownTile('Temperature', widget.translationTemp.toString(), {
+                  '0.0': '0.0', '0.1': '0.1', '0.3': '0.3',
+                  '0.5': '0.5', '0.7': '0.7', '1.0': '1.0',
+                }, (v) => widget.onTranslationTempChanged(double.parse(v))),
+              ],
               _dropdownTile('번역 톤', widget.toneMode, {
                 'normal': '기본',
                 'polite': '예의',

@@ -17,6 +17,7 @@ class OpenAIService {
     ToneMode tone = ToneMode.normal,
     String? systemPrompt,
     List<Map<String, String>>? context,
+    double temperature = 0.3,
   }) async {
     final prompt = systemPrompt ?? AppPrompts.translationSystem(
       PromptLanguagePair(sourceLang: sourceLang, targetLang: targetLang),
@@ -39,7 +40,7 @@ class OpenAIService {
       body: jsonEncode({
         'model': model,
         'messages': messages,
-        'temperature': 0.3,
+        'temperature': temperature,
         'response_format': {'type': 'json_object'},
       }),
     ).timeout(_timeout);
