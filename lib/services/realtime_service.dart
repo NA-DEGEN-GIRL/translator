@@ -85,6 +85,7 @@ class RealtimeService {
               'turn_detection': {
                 'type': 'server_vad',
                 'threshold': vadThreshold,
+                'silence_duration_ms': 500,
                 'create_response': true,
               },
             },
@@ -240,6 +241,10 @@ class RealtimeService {
 
       case 'output_audio_buffer.started':
         muteMic(true);
+        // Clear any audio captured between speech end and output start
+        if (_dc?.state == RTCDataChannelState.RTCDataChannelOpen) {
+          _dc!.send(RTCDataChannelMessage(jsonEncode({'type': 'input_audio_buffer.clear'})));
+        }
         break;
 
       case 'output_audio_buffer.stopped':
