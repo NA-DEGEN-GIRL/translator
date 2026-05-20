@@ -1670,10 +1670,16 @@ Schema:
     final key = '$_sourceLang|$_targetLang|$_showPronunciation';
     final current = _rtPostProcessor;
     if (current != null && current.isActive && _rtPostProcessorKey == key) {
+      debugPrint(
+        '[RT-PP] realtime2 websocket reuse pair=$_sourceLang-$_targetLang',
+      );
       return current;
     }
 
     await current?.stop();
+    debugPrint(
+      '[RT-PP] realtime2 websocket start pair=$_sourceLang-$_targetLang',
+    );
     final service = RealtimePostProcessWsService(
       apiKey: widget.apiKey,
       instructions: _rtPostProcessorInstructions(),
@@ -1682,6 +1688,7 @@ Schema:
     await service.start();
     _rtPostProcessor = service;
     _rtPostProcessorKey = key;
+    debugPrint('[RT-PP] realtime2 websocket ready');
     return service;
   }
 
@@ -1723,6 +1730,10 @@ Schema:
   }) {
     final task = _rtPostProcessQueue.then((_) async {
       final service = await _ensureRealtimePostProcessor();
+      debugPrint(
+        '[RT-PP] realtime2 request known=$knownOutputLangCode '
+        'back=$needBackTranslation pron=$needPronunciation',
+      );
       final payload = jsonEncode({
         'input_text': output,
         'source': {
@@ -1741,7 +1752,13 @@ Schema:
         payload,
         timeout: const Duration(seconds: 10),
       );
-      return _decodeRealtimePostProcessJson(raw);
+      final parsed = _decodeRealtimePostProcessJson(raw);
+      debugPrint(
+        '[RT-PP] realtime2 result detected=${parsed['detected_lang_code']} '
+        'back=${parsed['back_translation'] != null} '
+        'pron=${parsed['pronunciation'] != null}',
+      );
+      return parsed;
     });
     _rtPostProcessQueue = task.then<void>((_) {}, onError: (_) {});
     return task;
@@ -1784,13 +1801,17 @@ Schema:
           needPronunciation: _showPronunciation,
         );
         usedRealtime2PostProcess = true;
-      } catch (_) {
+      } catch (e) {
+        debugPrint(
+          '[RT-PP] realtime2 failed fallback=chat reason=${e.runtimeType}',
+        );
         _discardRealtimePostProcessor();
       }
     }
 
     if (!usedRealtime2PostProcess && needsPostProcess) {
       try {
+        debugPrint('[RT-PP] chat postprocess model=$_detectModel');
         result = await _openai.realtimePostProcess(
           output,
           sourceLang: getLangByCode(_sourceLang).name,
@@ -1837,14 +1858,33 @@ Schema:
             expectedBackTranslationLangCode,
           )) {
         backTranslation = candidate;
+        debugPrint(
+          '[RT-PP] back_translation source=realtime2 expected=$expectedBackTranslationLangCode',
+        );
+      } else if (candidate != null) {
+        debugPrint(
+          '[RT-PP] back_translation realtime2_rejected '
+          'expected=$expectedBackTranslationLangCode fallback=chat',
+        );
       }
       backTranslation ??= await _realtimeBackTranslate(
         output: output,
         outputLangCode: detectedLang,
         targetLangCode: expectedBackTranslationLangCode,
       );
+      if (backTranslation != null && backTranslation != candidate) {
+        debugPrint(
+          '[RT-PP] back_translation source=chat model=$_detectModel '
+          'expected=$expectedBackTranslationLangCode',
+        );
+      }
     }
     var pronunciation = _showPronunciation ? result['pronunciation'] : null;
+    if (_showPronunciation &&
+        pronunciation != null &&
+        usedRealtime2PostProcess) {
+      debugPrint('[RT-PP] pronunciation source=realtime2');
+    }
     if (_showPronunciation && pronunciation == null) {
       final pronunciationSource = _realtimePronunciationSource(
         output: output,
@@ -1854,12 +1894,16 @@ Schema:
       );
       if (pronunciationSource != null) {
         pronunciation = await _hangulPronunciation(pronunciationSource);
+        if (pronunciation != null) {
+          debugPrint('[RT-PP] pronunciation source=chat model=$_detectModel');
+        }
       }
     }
 
     final cur = _messages[msgIndex];
     debugPrint(
-      '[RT] postProcess: idx=$msgIndex dir=$direction bt=${backTranslation != null} pron=${pronunciation != null}',
+      '[RT-PP] done idx=$msgIndex path=${usedRealtime2PostProcess ? 'realtime2' : 'chat'} '
+      'dir=$direction bt=${backTranslation != null} pron=${pronunciation != null}',
     );
     if (direction != cur.direction ||
         backTranslation != null ||
