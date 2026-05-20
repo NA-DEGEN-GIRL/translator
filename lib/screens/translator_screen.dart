@@ -138,7 +138,9 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
       final savedModel = prefs.getString('model') ?? 'gpt-5.4-nano';
       _model = savedModel.startsWith('gpt-4.1') ? 'gpt-5.4-nano' : savedModel;
       final savedAiModel = prefs.getString('aiModel') ?? 'gpt-5.4-mini';
-      _aiModel = savedAiModel.startsWith('gpt-4.1') ? 'gpt-5.4-mini' : savedAiModel;
+      _aiModel = savedAiModel.startsWith('gpt-4.1')
+          ? 'gpt-5.4-mini'
+          : savedAiModel;
       _aiPauseSeconds = prefs.getInt('aiPauseSeconds') ?? 5;
       _ttsSpeed = prefs.getDouble('ttsSpeed') ?? 1.0;
       _pauseSeconds = prefs.getInt('pauseSeconds') ?? 3;
@@ -149,13 +151,15 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
       _backTranslateSource = prefs.getBool('backTranslateSource') ?? true;
       _backTranslateTarget = prefs.getBool('backTranslateTarget') ?? true;
       _showPronunciation = prefs.getBool('showPronunciation') ?? false;
-      _deleteConversationItems = prefs.getBool('deleteConversationItems') ?? true;
+      _deleteConversationItems =
+          prefs.getBool('deleteConversationItems') ?? true;
       _injectFewShot = prefs.getBool('injectFewShot') ?? true;
       _translationContext = prefs.getBool('translationContext') ?? false;
       _translationTemp = prefs.getDouble('translationTemp') ?? 0.3;
       _classifyTemp = prefs.getDouble('classifyTemp') ?? 0.1;
       _pronunciationTemp = prefs.getDouble('pronunciationTemp') ?? 0.3;
-      _noiseThreshold = prefs.getDouble('noiseThreshold') ?? (kIsWeb ? -60 : -30);
+      _noiseThreshold =
+          prefs.getDouble('noiseThreshold') ?? (kIsWeb ? -60 : -30);
       _vadThreshold = prefs.getDouble('vadThreshold') ?? 0.9;
       _micLang = _sourceLang;
       _promptTemplates = promptTemplates;
@@ -202,85 +206,211 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
       backgroundColor: Colors.transparent,
       builder: (_) => StatefulBuilder(
         builder: (ctx, setSheetState) => SettingsSheet(
-        mode: _mode,
-        model: _model,
-        realtimeModel: _realtimeModel,
-        sourceLang: _sourceLang,
-        targetLang: _targetLang,
-        displayMode: _displayMode,
-        ttsSourceEnabled: _ttsSourceEnabled,
-        ttsTargetEnabled: _ttsTargetEnabled,
-        voiceSource: _voiceSource,
-        voiceTarget: _voiceTarget,
-        fontSize: _fontSize,
-        ttsSpeed: _ttsSpeed,
-        pauseSeconds: _aiMode ? _aiPauseSeconds : _pauseSeconds,
-        noiseThreshold: _noiseThreshold,
-        vadThreshold: _vadThreshold,
-        toneMode: _toneMode,
-        realtimeActive: _realtimeActive,
-        realtimeVoice: _realtimeVoice,
-        onRealtimeVoiceChanged: (v) { setState(() => _realtimeVoice = v); setSheetState((){}); _saveSettings(); },
-        aiModel: _aiModel,
-        aiPauseSeconds: _aiPauseSeconds,
-        onToneModeChanged: (v) { setState(() => _toneMode = v); setSheetState((){}); _saveSettings(); },
-        onAiModelChanged: (v) { setState(() => _aiModel = v); setSheetState((){}); _saveSettings(); },
-        onAiPauseSecondsChanged: (v) { setState(() => _aiPauseSeconds = v); setSheetState((){}); _saveSettings(); },
-        onModeChanged: (v) {
-          if (!{'realtime', 'realtime_dir'}.contains(v) && _realtimeActive) _stopRealtime();
-          setState(() => _mode = v); setSheetState((){}); _saveSettings();
-        },
-        onModelChanged: (v) { setState(() => _model = v); setSheetState((){}); _saveSettings(); },
-        onRealtimeModelChanged: (v) { setState(() => _realtimeModel = v); setSheetState((){}); _saveSettings(); },
-        onSourceLangChanged: (v) { setState(() { _sourceLang = v; _micLang = v; }); setSheetState((){}); _saveSettings(); },
-        onTargetLangChanged: (v) { setState(() => _targetLang = v); setSheetState((){}); _saveSettings(); },
-        onDisplayModeChanged: (v) { setState(() => _displayMode = v); setSheetState((){}); _saveSettings(); },
-        onTtsSourceChanged: (v) { setState(() => _ttsSourceEnabled = v); setSheetState((){}); _saveSettings(); _updateRealtimeAudioMute(); },
-        onTtsTargetChanged: (v) { setState(() => _ttsTargetEnabled = v); setSheetState((){}); _saveSettings(); _updateRealtimeAudioMute(); },
-        onVoiceSourceChanged: (v) { setState(() => _voiceSource = v); setSheetState((){}); _saveSettings(); },
-        onVoiceTargetChanged: (v) { setState(() => _voiceTarget = v); setSheetState((){}); _saveSettings(); },
-        onFontSizeChanged: (v) { setState(() => _fontSize = v); setSheetState((){}); _saveSettings(); },
-        onTtsSpeedChanged: (v) { setState(() => _ttsSpeed = v); setSheetState((){}); _saveSettings(); },
-        onPauseSecondsChanged: (v) { setState(() => _pauseSeconds = v); setSheetState((){}); _saveSettings(); },
-        onNoiseThresholdChanged: (v) { setState(() => _noiseThreshold = v); setSheetState((){}); _saveSettings(); },
-        onVadThresholdChanged: (v) { setState(() => _vadThreshold = v); setSheetState((){}); _saveSettings(); },
-        deleteConversationItems: _deleteConversationItems,
-        onDeleteConversationItemsChanged: (v) { setState(() => _deleteConversationItems = v); setSheetState((){}); _saveSettings(); },
-        injectFewShot: _injectFewShot,
-        onInjectFewShotChanged: (v) { setState(() => _injectFewShot = v); setSheetState((){}); _saveSettings(); },
-        translationContext: _translationContext,
-        onTranslationContextChanged: (v) { setState(() => _translationContext = v); setSheetState((){}); _saveSettings(); },
-        translationTemp: _translationTemp,
-        onTranslationTempChanged: (v) { setState(() => _translationTemp = v); setSheetState((){}); _saveSettings(); },
-        classifyTemp: _classifyTemp,
-        onClassifyTempChanged: (v) { setState(() => _classifyTemp = v); setSheetState((){}); _saveSettings(); },
-        pronunciationTemp: _pronunciationTemp,
-        onPronunciationTempChanged: (v) { setState(() => _pronunciationTemp = v); setSheetState((){}); _saveSettings(); },
-        detectModel: _detectModel,
-        backTranslateSource: _backTranslateSource,
-        backTranslateTarget: _backTranslateTarget,
-        onDetectModelChanged: (v) { setState(() => _detectModel = v); setSheetState((){}); _saveSettings(); },
-        onBackTranslateSourceChanged: (v) { setState(() => _backTranslateSource = v); setSheetState((){}); _saveSettings(); },
-        onBackTranslateTargetChanged: (v) { setState(() => _backTranslateTarget = v); setSheetState((){}); _saveSettings(); },
-        showPronunciation: _showPronunciation,
-        onShowPronunciationChanged: (v) { setState(() => _showPronunciation = v); setSheetState((){}); _saveSettings(); },
-        promptTemplates: _promptTemplates,
-        onPromptChanged: (key, value) async {
-          await AppPrompts.saveTemplate(key, value);
-          if (!mounted) return;
-          setState(() => _promptTemplates = _updatedPromptTemplates(key, value));
-          setSheetState(() {});
-        },
-        onPromptReset: (key) async {
-          await AppPrompts.resetTemplate(key);
-          if (!mounted) return;
-          final templates = await AppPrompts.loadTemplates();
-          if (!mounted) return;
-          setState(() => _promptTemplates = templates);
-          setSheetState(() {});
-        },
-        onResetApiKey: () { Navigator.pop(context); _resetApiKey(); },
-      )),
+          mode: _mode,
+          model: _model,
+          realtimeModel: _realtimeModel,
+          sourceLang: _sourceLang,
+          targetLang: _targetLang,
+          displayMode: _displayMode,
+          ttsSourceEnabled: _ttsSourceEnabled,
+          ttsTargetEnabled: _ttsTargetEnabled,
+          voiceSource: _voiceSource,
+          voiceTarget: _voiceTarget,
+          fontSize: _fontSize,
+          ttsSpeed: _ttsSpeed,
+          pauseSeconds: _aiMode ? _aiPauseSeconds : _pauseSeconds,
+          noiseThreshold: _noiseThreshold,
+          vadThreshold: _vadThreshold,
+          toneMode: _toneMode,
+          realtimeActive: _realtimeActive,
+          realtimeVoice: _realtimeVoice,
+          onRealtimeVoiceChanged: (v) {
+            setState(() => _realtimeVoice = v);
+            setSheetState(() {});
+            _saveSettings();
+          },
+          aiModel: _aiModel,
+          aiPauseSeconds: _aiPauseSeconds,
+          onToneModeChanged: (v) {
+            setState(() => _toneMode = v);
+            setSheetState(() {});
+            _saveSettings();
+          },
+          onAiModelChanged: (v) {
+            setState(() => _aiModel = v);
+            setSheetState(() {});
+            _saveSettings();
+          },
+          onAiPauseSecondsChanged: (v) {
+            setState(() => _aiPauseSeconds = v);
+            setSheetState(() {});
+            _saveSettings();
+          },
+          onModeChanged: (v) {
+            if (!{'realtime', 'realtime_dir'}.contains(v) && _realtimeActive)
+              _stopRealtime();
+            setState(() => _mode = v);
+            setSheetState(() {});
+            _saveSettings();
+          },
+          onModelChanged: (v) {
+            setState(() => _model = v);
+            setSheetState(() {});
+            _saveSettings();
+          },
+          onRealtimeModelChanged: (v) {
+            setState(() => _realtimeModel = v);
+            setSheetState(() {});
+            _saveSettings();
+          },
+          onSourceLangChanged: (v) {
+            setState(() {
+              _sourceLang = v;
+              _micLang = v;
+            });
+            setSheetState(() {});
+            _saveSettings();
+          },
+          onTargetLangChanged: (v) {
+            setState(() => _targetLang = v);
+            setSheetState(() {});
+            _saveSettings();
+          },
+          onDisplayModeChanged: (v) {
+            setState(() => _displayMode = v);
+            setSheetState(() {});
+            _saveSettings();
+          },
+          onTtsSourceChanged: (v) {
+            setState(() => _ttsSourceEnabled = v);
+            setSheetState(() {});
+            _saveSettings();
+            _updateRealtimeAudioMute();
+          },
+          onTtsTargetChanged: (v) {
+            setState(() => _ttsTargetEnabled = v);
+            setSheetState(() {});
+            _saveSettings();
+            _updateRealtimeAudioMute();
+          },
+          onVoiceSourceChanged: (v) {
+            setState(() => _voiceSource = v);
+            setSheetState(() {});
+            _saveSettings();
+          },
+          onVoiceTargetChanged: (v) {
+            setState(() => _voiceTarget = v);
+            setSheetState(() {});
+            _saveSettings();
+          },
+          onFontSizeChanged: (v) {
+            setState(() => _fontSize = v);
+            setSheetState(() {});
+            _saveSettings();
+          },
+          onTtsSpeedChanged: (v) {
+            setState(() => _ttsSpeed = v);
+            setSheetState(() {});
+            _saveSettings();
+          },
+          onPauseSecondsChanged: (v) {
+            setState(() => _pauseSeconds = v);
+            setSheetState(() {});
+            _saveSettings();
+          },
+          onNoiseThresholdChanged: (v) {
+            setState(() => _noiseThreshold = v);
+            setSheetState(() {});
+            _saveSettings();
+          },
+          onVadThresholdChanged: (v) {
+            setState(() => _vadThreshold = v);
+            setSheetState(() {});
+            _saveSettings();
+          },
+          deleteConversationItems: _deleteConversationItems,
+          onDeleteConversationItemsChanged: (v) {
+            setState(() => _deleteConversationItems = v);
+            setSheetState(() {});
+            _saveSettings();
+          },
+          injectFewShot: _injectFewShot,
+          onInjectFewShotChanged: (v) {
+            setState(() => _injectFewShot = v);
+            setSheetState(() {});
+            _saveSettings();
+          },
+          translationContext: _translationContext,
+          onTranslationContextChanged: (v) {
+            setState(() => _translationContext = v);
+            setSheetState(() {});
+            _saveSettings();
+          },
+          translationTemp: _translationTemp,
+          onTranslationTempChanged: (v) {
+            setState(() => _translationTemp = v);
+            setSheetState(() {});
+            _saveSettings();
+          },
+          classifyTemp: _classifyTemp,
+          onClassifyTempChanged: (v) {
+            setState(() => _classifyTemp = v);
+            setSheetState(() {});
+            _saveSettings();
+          },
+          pronunciationTemp: _pronunciationTemp,
+          onPronunciationTempChanged: (v) {
+            setState(() => _pronunciationTemp = v);
+            setSheetState(() {});
+            _saveSettings();
+          },
+          detectModel: _detectModel,
+          backTranslateSource: _backTranslateSource,
+          backTranslateTarget: _backTranslateTarget,
+          onDetectModelChanged: (v) {
+            setState(() => _detectModel = v);
+            setSheetState(() {});
+            _saveSettings();
+          },
+          onBackTranslateSourceChanged: (v) {
+            setState(() => _backTranslateSource = v);
+            setSheetState(() {});
+            _saveSettings();
+          },
+          onBackTranslateTargetChanged: (v) {
+            setState(() => _backTranslateTarget = v);
+            setSheetState(() {});
+            _saveSettings();
+          },
+          showPronunciation: _showPronunciation,
+          onShowPronunciationChanged: (v) {
+            setState(() => _showPronunciation = v);
+            setSheetState(() {});
+            _saveSettings();
+          },
+          promptTemplates: _promptTemplates,
+          onPromptChanged: (key, value) async {
+            await AppPrompts.saveTemplate(key, value);
+            if (!mounted) return;
+            setState(
+              () => _promptTemplates = _updatedPromptTemplates(key, value),
+            );
+            setSheetState(() {});
+          },
+          onPromptReset: (key) async {
+            await AppPrompts.resetTemplate(key);
+            if (!mounted) return;
+            final templates = await AppPrompts.loadTemplates();
+            if (!mounted) return;
+            setState(() => _promptTemplates = templates);
+            setSheetState(() {});
+          },
+          onResetApiKey: () {
+            Navigator.pop(context);
+            _resetApiKey();
+          },
+        ),
+      ),
     );
   }
 
@@ -303,7 +433,10 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     }
   }
 
-  String _translationPrompt({required String sourceLang, required String targetLang}) {
+  String _translationPrompt({
+    required String sourceLang,
+    required String targetLang,
+  }) {
     return AppPrompts.translationSystem(
       PromptLanguagePair(sourceLang: sourceLang, targetLang: targetLang),
       tone: _tone,
@@ -318,11 +451,13 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     );
   }
 
-  String get _ttsPrompt => AppPrompts.ttsInstructions(
-    template: _promptTemplates.ttsInstructions,
-  );
+  String get _ttsPrompt =>
+      AppPrompts.ttsInstructions(template: _promptTemplates.ttsInstructions);
 
-  String _directionalPrompt({required String inputLang, required String outputLang}) {
+  String _directionalPrompt({
+    required String inputLang,
+    required String outputLang,
+  }) {
     return AppPrompts.realtimeDirectional(
       PromptLanguagePair(sourceLang: inputLang, targetLang: outputLang),
       tone: _tone,
@@ -342,16 +477,15 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     );
   }
 
-  static const _latinLangs = {'en', 'de', 'fr', 'vi'};
   static const _micHints = {
-    'ko': '이 버튼을 누르고 말씀하세요',
-    'ja': 'このボタンを押して話してください',
-    'zh': '请按此按钮后说话',
-    'en': 'Press this button and speak',
-    'de': 'Drücken Sie diese Taste und sprechen Sie',
-    'fr': 'Appuyez sur ce bouton et parlez',
-    'vi': 'Nhấn nút này và nói',
-    'ru': 'Нажмите эту кнопку и говорите',
+    'ko': '말하기',
+    'ja': '話す',
+    'zh': '说话',
+    'en': 'Speak',
+    'de': 'Sprechen',
+    'fr': 'Parler',
+    'vi': 'Nói',
+    'ru': 'Говорить',
   };
   static const _realtimeHints = {
     'ko': '그대로 말씀하세요',
@@ -363,13 +497,31 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     'vi': 'Hãy nói',
     'ru': 'Просто говорите',
   };
-  bool _isLatinLang(String code) => _latinLangs.contains(code);
+  static const _inputLabels = {
+    'ko': '입력창',
+    'ja': '入力欄',
+    'zh': '输入框',
+    'en': 'Input',
+    'de': 'Eingabe',
+    'fr': 'Saisie',
+    'vi': 'Ô nhập',
+    'ru': 'Ввод',
+  };
+
+  String get _textInputHint {
+    final sourceLabel = _inputLabels[_sourceLang] ?? '입력창';
+    final targetLabel = _inputLabels[_targetLang] ?? 'Input';
+    if (sourceLabel == targetLabel) return sourceLabel;
+    return '$sourceLabel ($targetLabel)';
+  }
 
   String? _detectLang(String text) {
     // Detect by unicode ranges. Returns null if undetectable (Latin etc.)
     final scores = <String, int>{};
     for (final ch in text.runes) {
-      if ((ch >= 0xAC00 && ch <= 0xD7AF) || (ch >= 0x1100 && ch <= 0x11FF) || (ch >= 0x3130 && ch <= 0x318F)) {
+      if ((ch >= 0xAC00 && ch <= 0xD7AF) ||
+          (ch >= 0x1100 && ch <= 0x11FF) ||
+          (ch >= 0x3130 && ch <= 0x318F)) {
         scores['ko'] = (scores['ko'] ?? 0) + 1;
       }
       if ((ch >= 0x3040 && ch <= 0x309F) || (ch >= 0x30A0 && ch <= 0x30FF)) {
@@ -409,8 +561,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     });
   }
 
-  Future<void> _handleTranslation(String text,
-      {String? forceDirection}) async {
+  Future<void> _handleTranslation(String text, {String? forceDirection}) async {
     if (text.isEmpty || _isProcessing) return;
     setState(() => _isProcessing = true);
 
@@ -419,8 +570,6 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     final direction = forceDirection ?? 'source2target';
 
     String translated = '';
-    String? backTranslation;
-
     try {
       final srcName = getLangByCode(_sourceLang).name;
       final tgtName = getLangByCode(_targetLang).name;
@@ -433,7 +582,8 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
         }).toList();
       }
 
-      final result = await _openai.translate(text,
+      final result = await _openai.translate(
+        text,
         sourceLang: direction == 'source2target' ? srcName : tgtName,
         targetLang: direction == 'source2target' ? tgtName : srcName,
         model: _model,
@@ -446,9 +596,9 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
         context: ctx,
       );
       translated = result['translated'] ?? '';
-      backTranslation = result['back_translation'];
-
-      final msgDir = direction == 'source2target' ? '${_sourceLang}2${_targetLang}' : '${_targetLang}2${_sourceLang}';
+      final msgDir = direction == 'source2target'
+          ? '${_sourceLang}2${_targetLang}'
+          : '${_targetLang}2${_sourceLang}';
       final msg = ChatMessage(
         original: text,
         translated: translated,
@@ -462,76 +612,93 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
 
         // TTS immediately after showing translation (non-blocking)
         if (translated.isNotEmpty) {
-          final ttsLangCode = direction == 'source2target' ? _targetLang : _sourceLang;
-          final shouldPlay = direction == 'source2target' ? _ttsTargetEnabled : _ttsSourceEnabled;
-          final voice = direction == 'source2target' ? _voiceTarget : _voiceSource;
+          final ttsLangCode = direction == 'source2target'
+              ? _targetLang
+              : _sourceLang;
+          final shouldPlay = direction == 'source2target'
+              ? _ttsTargetEnabled
+              : _ttsSourceEnabled;
+          final voice = direction == 'source2target'
+              ? _voiceTarget
+              : _voiceSource;
           if (shouldPlay) _playOpenAITTS(translated, ttsLangCode, voice);
         }
       }
 
       // Async back-translation for verification (per-language setting)
-      final wantBT = direction == 'source2target' ? _backTranslateTarget : _backTranslateSource;
+      final wantBT = direction == 'source2target'
+          ? _backTranslateTarget
+          : _backTranslateSource;
       if (translated.isNotEmpty && mounted && wantBT) {
         final btSrcName = direction == 'source2target' ? tgtName : srcName;
         final btTgtName = direction == 'source2target' ? srcName : tgtName;
-        _openai.translate(
-          translated,
-          sourceLang: btSrcName,
-          targetLang: btTgtName,
-          model: _model,
-          systemPrompt: _translationPrompt(sourceLang: btSrcName, targetLang: btTgtName),
-        ).then((r) async {
-          if (!mounted) return;
-          final bt = r['translated'] ?? '';
-          // Pronunciation for non-KO/EN
-          // Pronunciation: pronounce whichever text is foreign (not KO/EN)
-          String? pron;
-          if (_showPronunciation) {
-            final outputLangCode = direction == 'source2target' ? _targetLang : _sourceLang;
-            String? textToPronounce;
-            if (outputLangCode != 'ko' && outputLangCode != 'en') {
-              textToPronounce = translated; // output is foreign
-            } else if (bt.isNotEmpty) {
-              final btLangCode = direction == 'source2target' ? _sourceLang : _targetLang;
-              if (btLangCode != 'ko' && btLangCode != 'en') {
-                textToPronounce = bt; // back-translation is foreign
+        _openai
+            .translate(
+              translated,
+              sourceLang: btSrcName,
+              targetLang: btTgtName,
+              model: _model,
+              systemPrompt: _translationPrompt(
+                sourceLang: btSrcName,
+                targetLang: btTgtName,
+              ),
+            )
+            .then((r) async {
+              if (!mounted) return;
+              final bt = r['translated'] ?? '';
+              // Pronunciation for non-KO/EN
+              // Pronunciation: pronounce whichever text is foreign (not KO/EN)
+              String? pron;
+              if (_showPronunciation) {
+                final outputLangCode = direction == 'source2target'
+                    ? _targetLang
+                    : _sourceLang;
+                String? textToPronounce;
+                if (outputLangCode != 'ko' && outputLangCode != 'en') {
+                  textToPronounce = translated; // output is foreign
+                } else if (bt.isNotEmpty) {
+                  final btLangCode = direction == 'source2target'
+                      ? _sourceLang
+                      : _targetLang;
+                  if (btLangCode != 'ko' && btLangCode != 'en') {
+                    textToPronounce = bt; // back-translation is foreign
+                  }
+                }
+                if (textToPronounce != null) {
+                  try {
+                    final pronResult = await _openai.askAssistant(
+                      'Write how this text sounds using Korean characters (한글로 발음 표기). Example: こんにちは → 곤니치와. Reply with ONLY the 한글 pronunciation: $textToPronounce',
+                      model: 'gpt-5.4-nano',
+                      temperature: _pronunciationTemp,
+                    );
+                    pron = pronResult.trim();
+                  } catch (_) {}
+                }
               }
-            }
-            if (textToPronounce != null) {
-              try {
-                final pronResult = await _openai.askAssistant(
-                  'Write how this text sounds using Korean characters (한글로 발음 표기). Example: こんにちは → 곤니치와. Reply with ONLY the 한글 pronunciation: $textToPronounce',
-                  model: 'gpt-5.4-nano',
-                  temperature: _pronunciationTemp,
-                );
-                pron = pronResult.trim();
-              } catch (_) {}
-            }
-          }
-          if (!mounted) return;
-          if (bt.isNotEmpty || pron != null) {
-            setState(() {
-              final idx = _messages.indexOf(msg);
-              if (idx >= 0) {
-                _messages[idx] = ChatMessage(
-                  original: msg.original,
-                  translated: msg.translated,
-                  backTranslation: bt.isNotEmpty ? bt : null,
-                  pronunciation: pron,
-                  direction: msg.direction,
-                );
+              if (!mounted) return;
+              if (bt.isNotEmpty || pron != null) {
+                setState(() {
+                  final idx = _messages.indexOf(msg);
+                  if (idx >= 0) {
+                    _messages[idx] = ChatMessage(
+                      original: msg.original,
+                      translated: msg.translated,
+                      backTranslation: bt.isNotEmpty ? bt : null,
+                      pronunciation: pron,
+                      direction: msg.direction,
+                    );
+                  }
+                });
+                _scrollToBottom();
               }
-            });
-            _scrollToBottom();
-          }
-        }).catchError((_) {});
+            })
+            .catchError((_) {});
       }
     } catch (e) {
       if (mounted) _showError(e.toString());
     } finally {
       if (mounted) setState(() => _isProcessing = false);
     }
-
   }
 
   Future<void> _playOpenAITTS(String text, String lang, String voice) async {
@@ -545,7 +712,11 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
       await _audioPlayer.play(BytesSource(audioBytes));
     } catch (e) {
       // Fallback to browser TTS
-      final g = (lang == _targetLang ? _voiceTarget : _voiceSource) == 'nova' || (lang == _targetLang ? _voiceTarget : _voiceSource) == 'coral' ? 'female' : 'male';
+      final g =
+          (lang == _targetLang ? _voiceTarget : _voiceSource) == 'nova' ||
+              (lang == _targetLang ? _voiceTarget : _voiceSource) == 'coral'
+          ? 'female'
+          : 'male';
       await _speech.speak(text, lang, gender: g);
     }
   }
@@ -569,7 +740,9 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     });
 
     final sttLocale = getLangByCode(_micLang).sttLocale;
-    final direction = _micLang == _sourceLang ? 'source2target' : 'target2source';
+    final direction = _micLang == _sourceLang
+        ? 'source2target'
+        : 'target2source';
 
     await _speech.startListening(
       locale: sttLocale,
@@ -586,7 +759,9 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
           }
         }
       },
-      onDone: () { if (mounted) setState(() => _isListening = false); },
+      onDone: () {
+        if (mounted) setState(() => _isListening = false);
+      },
     );
   }
 
@@ -617,23 +792,27 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
       });
       await _recorder.start(
         const RecordConfig(encoder: AudioEncoder.aacLc, numChannels: 1),
-        path: kIsWeb ? '' : '${(await getTemporaryDirectory()).path}/rec_${DateTime.now().millisecondsSinceEpoch}.m4a',
+        path: kIsWeb
+            ? ''
+            : '${(await getTemporaryDirectory()).path}/rec_${DateTime.now().millisecondsSinceEpoch}.m4a',
       );
 
       // Silence detection for mirror mic
       final mirrorPause = _aiMode ? _aiPauseSeconds : _pauseSeconds;
       if (mirrorPause < 30) {
-        _ampSub = _recorder.onAmplitudeChanged(const Duration(milliseconds: 200)).listen((amp) {
-          if (amp.current < _noiseThreshold) {
-            final timeout = _aiMode ? _aiPauseSeconds : _pauseSeconds;
-            _silenceTimer ??= Timer(Duration(seconds: timeout), () {
-              if (_isMirrorListening) _stopMirrorListening();
+        _ampSub = _recorder
+            .onAmplitudeChanged(const Duration(milliseconds: 200))
+            .listen((amp) {
+              if (amp.current < _noiseThreshold) {
+                final timeout = _aiMode ? _aiPauseSeconds : _pauseSeconds;
+                _silenceTimer ??= Timer(Duration(seconds: timeout), () {
+                  if (_isMirrorListening) _stopMirrorListening();
+                });
+              } else {
+                _silenceTimer?.cancel();
+                _silenceTimer = null;
+              }
             });
-          } else {
-            _silenceTimer?.cancel();
-            _silenceTimer = null;
-          }
-        });
       }
     } else {
       // Browser STT
@@ -731,7 +910,10 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
         title: const Text('API 키 초기화'),
         content: const Text('API 키를 초기화하시겠습니까?\n앱이 처음 화면으로 돌아갑니다.'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('취소')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('취소'),
+          ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
             style: TextButton.styleFrom(foregroundColor: Colors.red),
@@ -758,8 +940,13 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     try {
       // Build context from recent messages
       final ctx = _messages.reversed.take(8).toList().reversed.map((m) {
-        if (m.isAI) return <String, String>{'content': 'Q: ${m.original}\nA: ${m.translated}'};
-        return <String, String>{'content': '${m.direction}: ${m.original} → ${m.translated}'};
+        if (m.isAI)
+          return <String, String>{
+            'content': 'Q: ${m.original}\nA: ${m.translated}',
+          };
+        return <String, String>{
+          'content': '${m.direction}: ${m.original} → ${m.translated}',
+        };
       }).toList();
 
       final answer = await _openai.askAssistant(
@@ -771,12 +958,14 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
 
       if (mounted) {
         setState(() {
-          _messages.add(ChatMessage(
-            original: question,
-            translated: answer,
-            direction: 'ai',
-            isAI: true,
-          ));
+          _messages.add(
+            ChatMessage(
+              original: question,
+              translated: answer,
+              direction: 'ai',
+              isAI: true,
+            ),
+          );
         });
         _scrollToBottom();
       }
@@ -821,24 +1010,32 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
 
     await _recorder.start(
       const RecordConfig(encoder: AudioEncoder.aacLc, numChannels: 1),
-      path: kIsWeb ? '' : '${(await getTemporaryDirectory()).path}/rec_${DateTime.now().millisecondsSinceEpoch}.m4a',
+      path: kIsWeb
+          ? ''
+          : '${(await getTemporaryDirectory()).path}/rec_${DateTime.now().millisecondsSinceEpoch}.m4a',
     );
 
     // Silence detection
     final effectivePause = _aiMode ? _aiPauseSeconds : _pauseSeconds;
-    if (effectivePause < 30) { // 30 = OFF
-      _ampSub = _recorder.onAmplitudeChanged(const Duration(milliseconds: 200)).listen((amp) {
-        debugPrint('[AMP] ${amp.current.toStringAsFixed(1)} dB (threshold: $_noiseThreshold)');
-        if (amp.current < _noiseThreshold) {
-          _silenceTimer ??= Timer(Duration(seconds: effectivePause), () {
-            if (_isRecording) _stopOpenAIRecording(forceDirection: forceDirection);
+    if (effectivePause < 30) {
+      // 30 = OFF
+      _ampSub = _recorder
+          .onAmplitudeChanged(const Duration(milliseconds: 200))
+          .listen((amp) {
+            debugPrint(
+              '[AMP] ${amp.current.toStringAsFixed(1)} dB (threshold: $_noiseThreshold)',
+            );
+            if (amp.current < _noiseThreshold) {
+              _silenceTimer ??= Timer(Duration(seconds: effectivePause), () {
+                if (_isRecording)
+                  _stopOpenAIRecording(forceDirection: forceDirection);
+              });
+            } else {
+              // Sound detected — reset timer
+              _silenceTimer?.cancel();
+              _silenceTimer = null;
+            }
           });
-        } else {
-          // Sound detected — reset timer
-          _silenceTimer?.cancel();
-          _silenceTimer = null;
-        }
-      });
     }
   }
 
@@ -871,7 +1068,10 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
         return;
       }
 
-      final text = await _openai.stt(bytes, forceDirection == 'ja2ko' ? 'ja' : _micLang);
+      final text = await _openai.stt(
+        bytes,
+        forceDirection == 'ja2ko' ? 'ja' : _micLang,
+      );
       setState(() => _interimText = '');
 
       if (text.isNotEmpty) {
@@ -929,6 +1129,8 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
       instructions: _realtimePrompt(),
       deleteConversationItems: _deleteConversationItems,
       injectFewShot: _injectFewShot,
+      textOnly: !_ttsTargetEnabled,
+      reasoningEffort: 'minimal',
       onEvent: _handleRealtimeEvent,
     );
 
@@ -988,6 +1190,8 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
       instructions: _directionalPrompt(inputLang: srcName, outputLang: tgtName),
       deleteConversationItems: _deleteConversationItems,
       injectFewShot: false,
+      textOnly: !_ttsTargetEnabled,
+      reasoningEffort: 'minimal',
       onEvent: (type, event) => _handleDirectionalEvent('a', type, event),
     );
 
@@ -1002,6 +1206,8 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
       instructions: _directionalPrompt(inputLang: tgtName, outputLang: srcName),
       deleteConversationItems: _deleteConversationItems,
       injectFewShot: false,
+      textOnly: !_ttsSourceEnabled,
+      reasoningEffort: 'minimal',
       onEvent: (type, event) => _handleDirectionalEvent('b', type, event),
     );
 
@@ -1027,7 +1233,11 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
       _realtimeA = null;
       _realtimeB = null;
       _showError(e.toString());
-      if (mounted) setState(() { _realtimeActive = false; _interimText = ''; });
+      if (mounted)
+        setState(() {
+          _realtimeActive = false;
+          _interimText = '';
+        });
     }
   }
 
@@ -1067,7 +1277,11 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     setState(() => _activeDirectionalSession = session);
   }
 
-  void _handleDirectionalEvent(String session, String type, Map<String, dynamic> event) {
+  void _handleDirectionalEvent(
+    String session,
+    String type,
+    Map<String, dynamic> event,
+  ) {
     if (!mounted || !_realtimeActive) return;
     final rt = session == 'a' ? _realtimeA : _realtimeB;
     if (rt == null) return;
@@ -1078,7 +1292,9 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     switch (type) {
       case 'response.created':
         // Per-direction audio: sessionA output = target lang, sessionB output = source lang
-        final wantAudio = session == 'a' ? _ttsTargetEnabled : _ttsSourceEnabled;
+        final wantAudio = session == 'a'
+            ? _ttsTargetEnabled
+            : _ttsSourceEnabled;
         rt.muteAudio(!wantAudio);
         break;
 
@@ -1112,12 +1328,17 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
         final turn = rid != null ? rt.turns[rid] : null;
         final outputText = turn?.output.trim() ?? '';
         final lower = outputText.toLowerCase();
-        final isJunk = outputText.isEmpty ||
-            lower.contains('output nothing') || lower.contains('silent') ||
-            lower.contains('silence') || lower.contains('침묵') ||
+        final isJunk =
+            outputText.isEmpty ||
+            lower.contains('output nothing') ||
+            lower.contains('silent') ||
+            lower.contains('silence') ||
+            lower.contains('침묵') ||
             (outputText.startsWith('(') && outputText.endsWith(')'));
-        final isDuplicate = _messages.isNotEmpty &&
-            !_messages.last.isAI && _messages.last.translated == outputText;
+        final isDuplicate =
+            _messages.isNotEmpty &&
+            !_messages.last.isAI &&
+            _messages.last.translated == outputText;
         if (turn != null && !isJunk && !isDuplicate) {
           final msg = ChatMessage(
             original: turn.output,
@@ -1140,7 +1361,10 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
             });
           }
         } else {
-          setState(() { _interimText = ''; _mirrorInterimText = ''; });
+          setState(() {
+            _interimText = '';
+            _mirrorInterimText = '';
+          });
         }
         break;
 
@@ -1187,7 +1411,6 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
         });
         break;
 
-
       case 'response.output_audio_transcript.delta':
       case 'response.output_text.delta':
         final rid = event['response_id'] as String?;
@@ -1205,7 +1428,8 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
         // Filter out non-translation responses (model outputting meta-text)
         final outputText = turn?.output.trim() ?? '';
         final lower = outputText.toLowerCase();
-        final isJunk = outputText.isEmpty ||
+        final isJunk =
+            outputText.isEmpty ||
             lower.contains('output nothing') ||
             lower.contains('no output') ||
             lower.contains('silence') ||
@@ -1216,7 +1440,8 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
             lower.contains('何も出力') ||
             (outputText.startsWith('(') && outputText.endsWith(')'));
         // Skip if duplicate of last message (caused by noise/cough triggering repeat)
-        final isDuplicate = _messages.isNotEmpty &&
+        final isDuplicate =
+            _messages.isNotEmpty &&
             !_messages.last.isAI &&
             _messages.last.translated == outputText;
         if (turn != null && !isJunk && !isDuplicate) {
@@ -1224,12 +1449,13 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
           final outputLang = _detectLang(turn.output);
           final direction = (outputLang != null)
               ? (outputLang != _sourceLang
-                  ? '${_sourceLang}2${_targetLang}'
-                  : '${_targetLang}2${_sourceLang}')
+                    ? '${_sourceLang}2${_targetLang}'
+                    : '${_targetLang}2${_sourceLang}')
               : '${_sourceLang}2${_targetLang}'; // default for Latin pairs
 
           final msg = ChatMessage(
-            original: turn.output, // back-translation will serve as "what was said"
+            original:
+                turn.output, // back-translation will serve as "what was said"
             translated: turn.output,
             direction: direction,
             turnId: rid,
@@ -1276,93 +1502,165 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
 
   void _showError(String msg) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(msg), backgroundColor: Colors.red),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(msg), backgroundColor: Colors.red));
   }
 
-  /// Async post-process for Realtime: detect language (nano) + back-translate
-  Future<void> _asyncRealtimePostProcess(int msgIndex, String output, String? detectedLang) async {
-    if (!mounted || msgIndex < 0 || msgIndex >= _messages.length) return;
+  bool _backTranslationLooksCompatible(String text, String expectedLangCode) {
+    if (text.trim().isEmpty) return false;
+    const scriptCheckedLangs = {'ko', 'ja', 'zh', 'ru'};
+    if (!scriptCheckedLangs.contains(expectedLangCode)) return true;
 
-    String direction = _messages[msgIndex].direction;
-    String? backTranslation;
+    final detected = _detectLang(text);
+    if (detected == expectedLangCode) return true;
+    if (expectedLangCode == 'zh' && detected == 'ja') return true;
+    return false;
+  }
 
-    // If unicode couldn't detect language, ask nano model as classifier
-    if (detectedLang == null && output.isNotEmpty) {
+  Future<String?> _realtimeBackTranslate({
+    required String output,
+    required String outputLangCode,
+    required String targetLangCode,
+  }) async {
+    try {
+      final result = await _openai.translate(
+        output,
+        sourceLang: getLangByCode(outputLangCode).name,
+        targetLang: getLangByCode(targetLangCode).name,
+        model: _detectModel,
+        systemPrompt: _translationPrompt(
+          sourceLang: getLangByCode(outputLangCode).name,
+          targetLang: getLangByCode(targetLangCode).name,
+        ),
+        temperature: _classifyTemp,
+      );
+      final translated = result['translated']?.trim();
+      if (translated != null &&
+          _backTranslationLooksCompatible(translated, targetLangCode)) {
+        return translated;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  Future<String?> _hangulPronunciation(String text) async {
+    try {
+      final result = await _openai.askAssistant(
+        'Write how this text sounds using Korean characters (한글로 발음 표기). Example: こんにちは → 곤니치와. Reply with ONLY the 한글 pronunciation: $text',
+        model: _detectModel,
+        temperature: _pronunciationTemp,
+      );
+      final pronunciation = result.trim();
+      return pronunciation.isEmpty ? null : pronunciation;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  String? _realtimePronunciationSource({
+    required String output,
+    required String outputLangCode,
+    required String? backTranslation,
+    required String backTranslationLangCode,
+  }) {
+    if (outputLangCode != 'ko' && outputLangCode != 'en') return output;
+    if (backTranslation != null &&
+        backTranslationLangCode != 'ko' &&
+        backTranslationLangCode != 'en') {
+      return backTranslation;
+    }
+    return null;
+  }
+
+  /// Async post-process for Realtime: detect language, back-translate,
+  /// and pronunciation in a single fast JSON call.
+  Future<void> _asyncRealtimePostProcess(
+    int msgIndex,
+    String output,
+    String? detectedLang,
+  ) async {
+    if (!mounted ||
+        output.isEmpty ||
+        msgIndex < 0 ||
+        msgIndex >= _messages.length) {
+      return;
+    }
+
+    final wantsAnyBackTranslation =
+        _backTranslateSource || _backTranslateTarget;
+    if (!wantsAnyBackTranslation &&
+        !_showPronunciation &&
+        detectedLang != null) {
+      return;
+    }
+
+    var result = <String, String?>{};
+    final needsPostProcess = detectedLang == null || _showPronunciation;
+    if (needsPostProcess) {
       try {
-        final srcName = getLangByCode(_sourceLang).name;
-        final tgtName = getLangByCode(_targetLang).name;
-        final result = await _openai.askAssistant(
-          'Which language is this text? Reply with ONLY one word: $srcName or $tgtName\n\nText: $output',
+        result = await _openai.realtimePostProcess(
+          output,
+          sourceLang: getLangByCode(_sourceLang).name,
+          sourceLangCode: _sourceLang,
+          targetLang: getLangByCode(_targetLang).name,
+          targetLangCode: _targetLang,
+          knownOutputLangCode: detectedLang,
+          needBackTranslation: false,
+          needPronunciation: _showPronunciation,
           model: _detectModel,
-          systemPrompt: 'You are a language classifier. The text is either $srcName or $tgtName. Reply with exactly one of these two names. No explanation.',
           temperature: _classifyTemp,
         );
-        final answer = result.trim().toLowerCase();
-        if (answer.contains(tgtName.toLowerCase())) {
-          detectedLang = _targetLang;
-          direction = '${_sourceLang}2${_targetLang}';
-        } else if (answer.contains(srcName.toLowerCase())) {
-          detectedLang = _sourceLang;
-          direction = '${_targetLang}2${_sourceLang}';
-        }
-      } catch (_) {}
-    }
-
-    // Back-translate (respecting per-language settings)
-    if (detectedLang != null && output.isNotEmpty && mounted) {
-      final isTarget = detectedLang != _sourceLang;
-      final wantBT = isTarget ? _backTranslateTarget : _backTranslateSource;
-      if (wantBT) {
-        try {
-          final fromName = getLangByCode(isTarget ? _targetLang : _sourceLang).name;
-          final toName = getLangByCode(isTarget ? _sourceLang : _targetLang).name;
-          final r = await _openai.translate(
-            output,
-            sourceLang: fromName,
-            targetLang: toName,
-            model: _detectModel,
-            systemPrompt: _translationPrompt(sourceLang: fromName, targetLang: toName),
-          );
-          backTranslation = r['translated'];
-        } catch (_) {}
-      }
-    }
-
-    // Pronunciation: Korean reading of the FOREIGN language text
-    // If output is foreign → pronounce output
-    // If output is Korean → pronounce back-translation (which is foreign)
-    String? pronunciation;
-    if (_showPronunciation && detectedLang != null && mounted) {
-      final outputLangCode = detectedLang != _sourceLang ? _targetLang : _sourceLang;
-      String? textToPronounce;
-      if (outputLangCode != 'ko' && outputLangCode != 'en') {
-        textToPronounce = output; // output is foreign
-      } else if (backTranslation != null && backTranslation!.isNotEmpty) {
-        // output is KO/EN, but back-translation is in the foreign language
-        final btLangCode = outputLangCode == _sourceLang ? _targetLang : _sourceLang;
-        if (btLangCode != 'ko' && btLangCode != 'en') {
-          textToPronounce = backTranslation;
-        }
-      }
-      if (textToPronounce != null) {
-        try {
-          final result = await _openai.askAssistant(
-            'Write how this text sounds using Korean characters (한글로 발음 표기). Example: こんにちは → 곤니치와. Reply with ONLY the 한글 pronunciation: $textToPronounce',
-            model: _detectModel,
-            temperature: 0.3,
-          );
-          final p = result.trim();
-          if (p.isNotEmpty) pronunciation = p;
-        } catch (_) {}
+      } catch (_) {
+        if (detectedLang == null) return;
       }
     }
 
     if (!mounted || msgIndex >= _messages.length) return;
+
+    final normalizedLang = result['detected_lang_code'];
+    if (normalizedLang == _sourceLang || normalizedLang == _targetLang) {
+      detectedLang = normalizedLang;
+    }
+    if (detectedLang == null) return;
+
+    final outputIsTarget = detectedLang != _sourceLang;
+    final direction = outputIsTarget
+        ? '${_sourceLang}2${_targetLang}'
+        : '${_targetLang}2${_sourceLang}';
+    final wantBackTranslation = outputIsTarget
+        ? _backTranslateTarget
+        : _backTranslateSource;
+    final expectedBackTranslationLangCode = outputIsTarget
+        ? _sourceLang
+        : _targetLang;
+    final backTranslation = wantBackTranslation
+        ? await _realtimeBackTranslate(
+            output: output,
+            outputLangCode: detectedLang,
+            targetLangCode: expectedBackTranslationLangCode,
+          )
+        : null;
+    var pronunciation = _showPronunciation ? result['pronunciation'] : null;
+    if (_showPronunciation && pronunciation == null) {
+      final pronunciationSource = _realtimePronunciationSource(
+        output: output,
+        outputLangCode: detectedLang,
+        backTranslation: backTranslation,
+        backTranslationLangCode: expectedBackTranslationLangCode,
+      );
+      if (pronunciationSource != null) {
+        pronunciation = await _hangulPronunciation(pronunciationSource);
+      }
+    }
+
     final cur = _messages[msgIndex];
-    debugPrint('[RT] postProcess: idx=$msgIndex dir=$direction bt=$backTranslation pron=$pronunciation');
-    if (direction != cur.direction || backTranslation != null || pronunciation != null) {
+    debugPrint(
+      '[RT] postProcess: idx=$msgIndex dir=$direction bt=${backTranslation != null} pron=${pronunciation != null}',
+    );
+    if (direction != cur.direction ||
+        backTranslation != null ||
+        pronunciation != null) {
       setState(() {
         _messages[msgIndex] = ChatMessage(
           original: cur.original,
@@ -1385,8 +1683,14 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     await _playOpenAITTS(msg.translated, lang, voice);
   }
 
-  Widget _buildChatList(ScrollController controller) {
+  Widget _buildChatList(
+    ScrollController controller, {
+    bool showEmptyHint = true,
+  }) {
     if (_messages.isEmpty) {
+      if (!showEmptyHint || _displayMode == 'face_v2') {
+        return const SizedBox.expand();
+      }
       return Center(
         child: Text(
           '${getLangByCode(_sourceLang).name} 또는 ${getLangByCode(_targetLang).name}로 입력하세요',
@@ -1444,7 +1748,10 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
               ),
             ),
             const SizedBox(width: 3),
-            Text(label, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
+            Text(
+              label,
+              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
+            ),
           ],
         ),
       ),
@@ -1494,7 +1801,9 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
           if (!_aiMode && !(_isRt && _realtimeActive))
             GestureDetector(
               onTap: () => setState(() {
-                _textDirection = _textDirection == 'source2target' ? 'target2source' : 'source2target';
+                _textDirection = _textDirection == 'source2target'
+                    ? 'target2source'
+                    : 'source2target';
               }),
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
@@ -1508,7 +1817,11 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
                   _textDirection == 'source2target'
                       ? '${_sourceLang.toUpperCase()}→${_targetLang.toUpperCase()}'
                       : '${_targetLang.toUpperCase()}→${_sourceLang.toUpperCase()}',
-                  style: const TextStyle(fontSize: 8, fontWeight: FontWeight.bold, color: Colors.white),
+                  style: const TextStyle(
+                    fontSize: 8,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
                 ),
               ),
             ),
@@ -1542,7 +1855,14 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
                 children: [
                   Icon(Icons.smart_toy, size: 10, color: Colors.white),
                   const SizedBox(width: 2),
-                  Text('AI', style: const TextStyle(fontSize: 8, fontWeight: FontWeight.bold, color: Colors.white)),
+                  Text(
+                    'AI',
+                    style: const TextStyle(
+                      fontSize: 8,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -1555,7 +1875,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
               child: TextField(
                 controller: _textController,
                 decoration: InputDecoration(
-                  hintText: '${getLangByCode(_sourceLang).localName} 또는 ${getLangByCode(_targetLang).localName} 입력...',
+                  hintText: _textInputHint,
                   hintStyle: const TextStyle(fontSize: 13),
                   contentPadding: const EdgeInsets.symmetric(horizontal: 12),
                   border: OutlineInputBorder(
@@ -1581,7 +1901,10 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
             _buildLangMicButton(
               langCode: _sourceLang,
               color: const Color(0xFF4A90D9),
-              isActive: _realtimeActive && !_directionalPaused && _activeDirectionalSession == 'a',
+              isActive:
+                  _realtimeActive &&
+                  !_directionalPaused &&
+                  _activeDirectionalSession == 'a',
               onTap: () {
                 if (!_realtimeActive) {
                   _startRealtimeDirectional(initialSession: 'a');
@@ -1594,7 +1917,10 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
             _buildLangMicButton(
               langCode: _targetLang,
               color: const Color(0xFFE85D75),
-              isActive: _realtimeActive && !_directionalPaused && _activeDirectionalSession == 'b',
+              isActive:
+                  _realtimeActive &&
+                  !_directionalPaused &&
+                  _activeDirectionalSession == 'b',
               onTap: () {
                 if (!_realtimeActive) {
                   _startRealtimeDirectional(initialSession: 'b');
@@ -1621,10 +1947,10 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
             ],
           ] else if (_mode == 'realtime' && !_aiMode) ...[
             // Auto Realtime: single mic button
-            _buildCircleButton(
-              icon: Icons.mic,
-              size: 36,
-              color: _realtimeActive ? Colors.red : const Color(0xFF4A90D9),
+            _buildLangMicButton(
+              langCode: 'RT',
+              color: const Color(0xFF4A90D9),
+              isActive: _realtimeActive,
               onTap: () => _realtimeActive ? _stopRealtime() : _startRealtime(),
             ),
           ] else if (_isRt && _aiMode) ...[
@@ -1647,15 +1973,19 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
               icon: Icons.translate,
               size: 28,
               color: _realtimeActive ? Colors.green : Colors.grey,
-              onTap: () => _realtimeActive ? _stopRealtime() : _startRealtimeAny(),
+              onTap: () =>
+                  _realtimeActive ? _stopRealtime() : _startRealtimeAny(),
               outlined: !_realtimeActive,
             ),
           ] else ...[
             // Source language mic (purple when AI mode)
             _buildLangMicButton(
               langCode: _aiMode ? 'AI' : _sourceLang,
-              color: _aiMode ? const Color(0xFF8B5CF6) : const Color(0xFF4A90D9),
-              isActive: (_isListening || _isRecording) && _micLang == _sourceLang,
+              color: _aiMode
+                  ? const Color(0xFF8B5CF6)
+                  : const Color(0xFF4A90D9),
+              isActive:
+                  (_isListening || _isRecording) && _micLang == _sourceLang,
               onTap: () => _handleMicTap(_sourceLang, 'source2target'),
             ),
             const SizedBox(width: 3),
@@ -1663,7 +1993,8 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
             _buildLangMicButton(
               langCode: _targetLang,
               color: const Color(0xFFE85D75),
-              isActive: (_isListening || _isRecording) && _micLang == _targetLang,
+              isActive:
+                  (_isListening || _isRecording) && _micLang == _targetLang,
               onTap: () => _handleMicTap(_targetLang, 'target2source'),
             ),
           ],
@@ -1741,117 +2072,433 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     );
   }
 
+  Widget _buildFaceV2Scaffold() {
+    return Scaffold(
+      body: SafeArea(
+        child: Column(
+          children: [
+            Expanded(
+              child: Transform.rotate(
+                angle: 3.14159,
+                child: _buildFaceV2Half(mirror: true),
+              ),
+            ),
+            _buildFaceV2Divider(),
+            Expanded(child: _buildFaceV2Half(mirror: false)),
+            _buildInputRow(),
+            const SizedBox(height: 4),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFaceV2Half({required bool mirror}) {
+    final accent = mirror ? const Color(0xFFE85D75) : const Color(0xFF4A90D9);
+    final soft = mirror ? const Color(0xFFFFF6F8) : const Color(0xFFF3F8FF);
+    final readerLang = mirror ? _targetLang : _sourceLang;
+    final sourceName = languageNameForReader(_sourceLang, readerLang);
+    final targetName = languageNameForReader(_targetLang, readerLang);
+    final pairTitle = mirror
+        ? '$targetName <-> $sourceName'
+        : '$sourceName <-> $targetName';
+    final controller = mirror ? _mirrorScrollController : _myScrollController;
+    final interim = mirror ? _mirrorInterimText : _interimText;
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Colors.white, soft],
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+        child: Column(
+          children: [
+            _buildFaceV2Header(title: pairTitle, accent: accent),
+            Expanded(
+              child: Container(
+                margin: const EdgeInsets.only(top: 10, bottom: 8),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.58),
+                  borderRadius: BorderRadius.circular(22),
+                  border: Border.all(color: accent.withOpacity(0.08)),
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(22),
+                  child: _buildChatList(controller, showEmptyHint: false),
+                ),
+              ),
+            ),
+            if (interim.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Text(
+                  interim,
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            if (!mirror && _isProcessing)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: accent,
+                  ),
+                ),
+              ),
+            _buildFaceV2ActionRow(mirror: mirror, accent: accent),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFaceV2Header({required String title, required Color accent}) {
+    return Align(
+      alignment: Alignment.center,
+      child: Container(
+        height: 38,
+        padding: const EdgeInsets.symmetric(horizontal: 14),
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.78),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: accent.withOpacity(0.14)),
+        ),
+        alignment: Alignment.center,
+        child: Text(
+          title,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w900,
+            color: accent,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFaceV2ActionRow({required bool mirror, required Color accent}) {
+    final action = _faceV2MicAction(mirror: mirror);
+    final mic = _buildFaceV2Mic(
+      langCode: action.langCode,
+      label: action.label,
+      color: accent,
+      isActive: action.isActive,
+      onTap: action.onTap,
+    );
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 2),
+      child: Align(
+        alignment: mirror ? Alignment.centerLeft : Alignment.centerRight,
+        child: mic,
+      ),
+    );
+  }
+
+  _FaceV2MicAction _faceV2MicAction({required bool mirror}) {
+    if (mirror) {
+      if (_mode == 'realtime_dir' && !_aiMode) {
+        return _FaceV2MicAction(
+          langCode: _targetLang,
+          label: _micHints[_targetLang] ?? '말하기',
+          isActive:
+              _realtimeActive &&
+              !_directionalPaused &&
+              _activeDirectionalSession == 'b',
+          onTap: () {
+            if (!_realtimeActive) {
+              _startRealtimeDirectional(initialSession: 'b');
+            } else {
+              _switchDirectionalSession('b');
+            }
+          },
+        );
+      }
+      if (_mode == 'realtime' && !_aiMode) {
+        return _FaceV2MicAction(
+          langCode: _targetLang,
+          label: _realtimeActive
+              ? '중지'
+              : (_realtimeHints[_targetLang] ?? '말하기'),
+          isActive: _realtimeActive,
+          onTap: () => _realtimeActive ? _stopRealtime() : _startRealtime(),
+        );
+      }
+      final isTargetRecording = _isRecording && _micLang == _targetLang;
+      return _FaceV2MicAction(
+        langCode: _targetLang,
+        label: _micHints[_targetLang] ?? '말하기',
+        isActive: _isMirrorListening || isTargetRecording,
+        onTap: () {
+          if (_isMirrorListening) {
+            _stopMirrorListening();
+          } else if (isTargetRecording) {
+            _stopOpenAIRecording(forceDirection: 'target2source');
+          } else {
+            _startMirrorListening();
+          }
+        },
+      );
+    }
+
+    if (_mode == 'realtime_dir' && !_aiMode) {
+      return _FaceV2MicAction(
+        langCode: _sourceLang,
+        label: _micHints[_sourceLang] ?? '말하기',
+        isActive:
+            _realtimeActive &&
+            !_directionalPaused &&
+            _activeDirectionalSession == 'a',
+        onTap: () {
+          if (!_realtimeActive) {
+            _startRealtimeDirectional(initialSession: 'a');
+          } else {
+            _switchDirectionalSession('a');
+          }
+        },
+      );
+    }
+    if (_mode == 'realtime' && !_aiMode) {
+      return _FaceV2MicAction(
+        langCode: _sourceLang,
+        label: _realtimeActive ? '중지' : (_realtimeHints[_sourceLang] ?? '말하기'),
+        isActive: _realtimeActive,
+        onTap: () => _realtimeActive ? _stopRealtime() : _startRealtime(),
+      );
+    }
+    if (_isRt && _aiMode) {
+      return _FaceV2MicAction(
+        langCode: 'AI',
+        label: _isRecording ? '중지' : 'AI 질문',
+        isActive: _isRecording,
+        onTap: () {
+          if (_isRecording) {
+            _stopOpenAIRecording();
+          } else {
+            setState(() => _micLang = _sourceLang);
+            _startOpenAIRecording();
+          }
+        },
+      );
+    }
+    return _FaceV2MicAction(
+      langCode: _aiMode ? 'AI' : _sourceLang,
+      label: _aiMode ? 'AI 질문' : (_micHints[_sourceLang] ?? '말하기'),
+      isActive: (_isListening || _isRecording) && _micLang == _sourceLang,
+      onTap: () => _handleMicTap(_sourceLang, 'source2target'),
+    );
+  }
+
+  String _faceV2SpeakLabel(String langCode, String fallback) {
+    if (langCode == 'AI') return fallback.contains('질문') ? '질문' : '말하기';
+    return switch (langCode) {
+      'ja' => '話す',
+      'zh' => '说话',
+      'en' => 'Speak',
+      'de' => 'Sprechen',
+      'fr' => 'Parler',
+      'vi' => 'Nói',
+      'ru' => 'Говорить',
+      _ => '말하기',
+    };
+  }
+
+  String _faceV2ListeningLabel(String langCode) {
+    return switch (langCode) {
+      'ja' => '聞き取り中',
+      'zh' => '聆听中',
+      'en' => 'Listening',
+      'de' => 'Hört zu',
+      'fr' => 'Écoute',
+      'vi' => 'Đang nghe',
+      'ru' => 'Слушаю',
+      _ => '듣는 중',
+    };
+  }
+
+  Widget _buildFaceV2Mic({
+    required String langCode,
+    required String label,
+    required Color color,
+    required bool isActive,
+    required VoidCallback onTap,
+  }) {
+    return _FaceV2MicButton(
+      key: ValueKey('face-v2-mic-$langCode-$isActive'),
+      langCode: langCode,
+      label: isActive
+          ? _faceV2ListeningLabel(langCode)
+          : _faceV2SpeakLabel(langCode, label),
+      color: color,
+      isActive: isActive,
+      onTap: onTap,
+    );
+  }
+
+  Widget _buildFaceV2Divider() {
+    return Container(
+      height: 3,
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          colors: [Color(0xFFE85D75), Color(0xFF8E77C8), Color(0xFF4A90D9)],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    if (_displayMode == 'face_v2') return _buildFaceV2Scaffold();
+
     return Scaffold(
       body: SafeArea(
         child: Column(
           children: [
             // === Mirror half (only in face-to-face mode) ===
             if (_displayMode == 'face')
-            Expanded(
-              child: Transform.rotate(
-                angle: 3.14159,
-                child: Column(
-                  children: [
-                    // Label
-                    Container(
-                      padding: const EdgeInsets.all(3),
-                      decoration: BoxDecoration(
-                        border: Border(bottom: BorderSide(color: Colors.grey.shade300)),
-                      ),
-                      child: Text(
-                        '${getLangByCode(_targetLang).name}⇄${getLangByCode(_sourceLang).name}',
-                        style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.grey),
-                        textAlign: TextAlign.center,
-                      ),
-                    ),
-                    // Chat
-                    Expanded(child: _buildChatList(_mirrorScrollController)),
-                    // Mirror mic
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        border: Border(top: BorderSide(color: Colors.grey.shade300)),
-                      ),
-                      child: Column(
-                        children: [
-                          if (_mirrorInterimText.isNotEmpty)
-                            Padding(
-                              padding: const EdgeInsets.only(bottom: 4),
-                              child: Text(
-                                _mirrorInterimText,
-                                style: TextStyle(fontSize: 12, color: Colors.grey),
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                          if (_mode == 'realtime_dir')
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                _buildLangMicButton(
-                                  langCode: _targetLang,
-                                  color: const Color(0xFFE85D75),
-                                  isActive: _realtimeActive && !_directionalPaused && _activeDirectionalSession == 'b',
-                                  onTap: () {
-                                    if (!_realtimeActive) {
-                                      _startRealtimeDirectional(initialSession: 'b');
-                                    } else {
-                                      _switchDirectionalSession('b');
-                                    }
-                                  },
-                                ),
-                                const SizedBox(width: 8),
-                                Text(
-                                  _micHints[_targetLang] ?? 'Press and speak',
-                                  style: TextStyle(fontSize: 10, color: Colors.grey),
-                                ),
-                              ],
-                            )
-                          else if (_mode == 'realtime')
-                            Text(
-                              _realtimeHints[_targetLang] ?? 'Just speak',
-                              style: TextStyle(fontSize: 10, color: Colors.grey),
-                            )
-                          else
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                _buildCircleButton(
-                                  icon: Icons.mic,
-                                  size: 36,
-                                  color: _isMirrorListening
-                                      ? Colors.red
-                                      : const Color(0xFFE85D75),
-                                  onTap: _isMirrorListening
-                                      ? _stopMirrorListening
-                                      : _startMirrorListening,
-                                ),
-                                const SizedBox(width: 8),
-                                Text(
-                                  _micHints[_targetLang] ?? 'Press and speak',
-                                  style: TextStyle(fontSize: 10, color: Colors.grey),
-                                ),
-                              ],
+              Expanded(
+                child: Transform.rotate(
+                  angle: 3.14159,
+                  child: Column(
+                    children: [
+                      // Label
+                      Container(
+                        padding: const EdgeInsets.all(3),
+                        decoration: BoxDecoration(
+                          border: Border(
+                            bottom: BorderSide(color: Colors.grey.shade300),
                           ),
-                        ],
+                        ),
+                        child: Text(
+                          '${getLangByCode(_targetLang).name}⇄${getLangByCode(_sourceLang).name}',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.grey,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
                       ),
-                    ),
-                  ],
+                      // Chat
+                      Expanded(child: _buildChatList(_mirrorScrollController)),
+                      // Mirror mic
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          border: Border(
+                            top: BorderSide(color: Colors.grey.shade300),
+                          ),
+                        ),
+                        child: Column(
+                          children: [
+                            if (_mirrorInterimText.isNotEmpty)
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 4),
+                                child: Text(
+                                  _mirrorInterimText,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey,
+                                  ),
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            if (_mode == 'realtime_dir')
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  _buildLangMicButton(
+                                    langCode: _targetLang,
+                                    color: const Color(0xFFE85D75),
+                                    isActive:
+                                        _realtimeActive &&
+                                        !_directionalPaused &&
+                                        _activeDirectionalSession == 'b',
+                                    onTap: () {
+                                      if (!_realtimeActive) {
+                                        _startRealtimeDirectional(
+                                          initialSession: 'b',
+                                        );
+                                      } else {
+                                        _switchDirectionalSession('b');
+                                      }
+                                    },
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    _micHints[_targetLang] ?? '말하기',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      color: Colors.grey,
+                                    ),
+                                  ),
+                                ],
+                              )
+                            else if (_mode == 'realtime')
+                              Text(
+                                _realtimeHints[_targetLang] ?? 'Just speak',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: Colors.grey,
+                                ),
+                              )
+                            else
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  _buildCircleButton(
+                                    icon: Icons.mic,
+                                    size: 36,
+                                    color: _isMirrorListening
+                                        ? Colors.red
+                                        : const Color(0xFFE85D75),
+                                    onTap: _isMirrorListening
+                                        ? _stopMirrorListening
+                                        : _startMirrorListening,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    _micHints[_targetLang] ?? '말하기',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      color: Colors.grey,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ),
             // === Divider (face-to-face only) ===
             if (_displayMode == 'face')
-            Container(
-              height: 3,
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [Color(0xFF4A90D9), Color(0xFFE85D75)],
+              Container(
+                height: 3,
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [Color(0xFF4A90D9), Color(0xFFE85D75)],
+                  ),
                 ),
               ),
-            ),
             // === My half ===
             Expanded(
               child: Column(
@@ -1860,11 +2507,17 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
                   Container(
                     padding: const EdgeInsets.all(3),
                     decoration: BoxDecoration(
-                      border: Border(bottom: BorderSide(color: Colors.grey.shade300)),
+                      border: Border(
+                        bottom: BorderSide(color: Colors.grey.shade300),
+                      ),
                     ),
                     child: Text(
                       '${getLangByCode(_sourceLang).name}⇄${getLangByCode(_targetLang).name}',
-                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.grey),
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.grey,
+                      ),
                       textAlign: TextAlign.center,
                     ),
                   ),
@@ -1906,6 +2559,222 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
   }
 }
 
+class _FaceV2MicAction {
+  final String langCode;
+  final String label;
+  final bool isActive;
+  final VoidCallback onTap;
+
+  const _FaceV2MicAction({
+    required this.langCode,
+    required this.label,
+    required this.isActive,
+    required this.onTap,
+  });
+}
+
+class _FaceV2MicButton extends StatefulWidget {
+  final String langCode;
+  final String label;
+  final Color color;
+  final bool isActive;
+  final VoidCallback onTap;
+
+  const _FaceV2MicButton({
+    super.key,
+    required this.langCode,
+    required this.label,
+    required this.color,
+    required this.isActive,
+    required this.onTap,
+  });
+
+  @override
+  State<_FaceV2MicButton> createState() => _FaceV2MicButtonState();
+}
+
+class _FaceV2MicButtonState extends State<_FaceV2MicButton>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  late final Animation<double> _beat;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 940),
+    );
+    _beat = TweenSequence<double>([
+      TweenSequenceItem(
+        tween: Tween<double>(
+          begin: 0,
+          end: 1,
+        ).chain(CurveTween(curve: Curves.easeOutCubic)),
+        weight: 18,
+      ),
+      TweenSequenceItem(
+        tween: Tween<double>(
+          begin: 1,
+          end: 0.28,
+        ).chain(CurveTween(curve: Curves.easeInOutCubic)),
+        weight: 18,
+      ),
+      TweenSequenceItem(
+        tween: Tween<double>(
+          begin: 0.28,
+          end: 0.82,
+        ).chain(CurveTween(curve: Curves.easeOutCubic)),
+        weight: 16,
+      ),
+      TweenSequenceItem(
+        tween: Tween<double>(
+          begin: 0.82,
+          end: 0,
+        ).chain(CurveTween(curve: Curves.easeInCubic)),
+        weight: 48,
+      ),
+    ]).animate(_controller);
+    _syncPulse();
+  }
+
+  @override
+  void didUpdateWidget(_FaceV2MicButton oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.isActive != widget.isActive ||
+        (widget.isActive && !_controller.isAnimating)) {
+      _syncPulse();
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (widget.isActive && !_controller.isAnimating) _syncPulse();
+  }
+
+  void _syncPulse() {
+    if (widget.isActive) {
+      _controller.repeat();
+    } else {
+      _controller.stop();
+      _controller.reset();
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final activeColor = widget.isActive
+        ? const Color(0xFFE94D65)
+        : widget.color;
+
+    return GestureDetector(
+      onTap: widget.onTap,
+      child: AnimatedBuilder(
+        animation: _beat,
+        builder: (context, child) {
+          final beat = widget.isActive ? _beat.value : 0.0;
+
+          return SizedBox(
+            width: 112,
+            height: 112,
+            child: Stack(
+              clipBehavior: Clip.none,
+              alignment: Alignment.center,
+              children: [
+                if (widget.isActive)
+                  Transform.scale(
+                    scale: 1.0 + beat * 0.42,
+                    child: Container(
+                      width: 92,
+                      height: 92,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: activeColor.withOpacity(
+                          0.30 * (1.0 - beat) + 0.06,
+                        ),
+                      ),
+                    ),
+                  ),
+                if (widget.isActive)
+                  Transform.scale(
+                    scale: 1.0 + beat * 0.56,
+                    child: Container(
+                      width: 84,
+                      height: 84,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: activeColor.withOpacity(
+                            0.48 * (1.0 - beat) + 0.10,
+                          ),
+                          width: 3,
+                        ),
+                      ),
+                    ),
+                  ),
+                Transform.scale(
+                  scale: 1.0 + beat * 0.12,
+                  child: Container(
+                    width: 76,
+                    height: 76,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 10,
+                    ),
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [activeColor.withOpacity(0.92), activeColor],
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: activeColor.withOpacity(
+                            widget.isActive ? 0.34 : 0.24,
+                          ),
+                          blurRadius: widget.isActive ? 24 : 14,
+                          spreadRadius: widget.isActive ? 2 : 0,
+                          offset: const Offset(0, 9),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.mic, color: Colors.white, size: 26),
+                        const SizedBox(height: 3),
+                        Text(
+                          widget.label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
 class _PulsatingMic extends StatefulWidget {
   final bool isActive;
   final Color color;
@@ -1921,7 +2790,8 @@ class _PulsatingMic extends StatefulWidget {
   State<_PulsatingMic> createState() => _PulsatingMicState();
 }
 
-class _PulsatingMicState extends State<_PulsatingMic> with SingleTickerProviderStateMixin {
+class _PulsatingMicState extends State<_PulsatingMic>
+    with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   late Animation<double> _scaleAnim;
 
@@ -1932,14 +2802,20 @@ class _PulsatingMicState extends State<_PulsatingMic> with SingleTickerProviderS
       vsync: this,
       duration: const Duration(milliseconds: 800),
     );
-    _scaleAnim = Tween<double>(begin: 1.0, end: 1.25).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
-    );
+    _scaleAnim = Tween<double>(
+      begin: 1.0,
+      end: 1.25,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeInOut));
+    _syncPulse();
   }
 
   @override
   void didUpdateWidget(_PulsatingMic old) {
     super.didUpdateWidget(old);
+    _syncPulse();
+  }
+
+  void _syncPulse() {
     if (widget.isActive && !_controller.isAnimating) {
       _controller.repeat(reverse: true);
     } else if (!widget.isActive && _controller.isAnimating) {
@@ -1967,13 +2843,17 @@ class _PulsatingMicState extends State<_PulsatingMic> with SingleTickerProviderS
             decoration: BoxDecoration(
               color: widget.isActive ? Colors.red : widget.color,
               borderRadius: BorderRadius.circular(8),
-              boxShadow: widget.isActive ? [
-                BoxShadow(
-                  color: Colors.red.withOpacity(0.4 * (1.25 - _scaleAnim.value)),
-                  blurRadius: 12,
-                  spreadRadius: 2,
-                ),
-              ] : null,
+              boxShadow: widget.isActive
+                  ? [
+                      BoxShadow(
+                        color: Colors.red.withOpacity(
+                          0.4 * (1.25 - _scaleAnim.value),
+                        ),
+                        blurRadius: 12,
+                        spreadRadius: 2,
+                      ),
+                    ]
+                  : null,
             ),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
@@ -1981,7 +2861,11 @@ class _PulsatingMicState extends State<_PulsatingMic> with SingleTickerProviderS
                 Icon(Icons.mic, size: 16, color: Colors.white),
                 Text(
                   widget.langCode.toUpperCase(),
-                  style: const TextStyle(fontSize: 8, fontWeight: FontWeight.bold, color: Colors.white),
+                  style: const TextStyle(
+                    fontSize: 8,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
                 ),
               ],
             ),

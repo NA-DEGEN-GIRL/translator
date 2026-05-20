@@ -23,6 +23,8 @@ class RealtimeService {
   final String? instructions;
   final bool deleteConversationItems;
   final bool injectFewShot;
+  final bool textOnly;
+  final String? reasoningEffort;
   final void Function(String type, Map<String, dynamic> event) onEvent;
 
   RTCPeerConnection? _pc;
@@ -52,6 +54,8 @@ class RealtimeService {
     this.instructions,
     this.deleteConversationItems = true,
     this.injectFewShot = true,
+    this.textOnly = false,
+    this.reasoningEffort,
     required this.onEvent,
   });
 
@@ -68,6 +72,39 @@ class RealtimeService {
     );
   }
 
+  bool get _isRealtime2 => model.toLowerCase().startsWith('gpt-realtime-2');
+
+  Map<String, dynamic> _buildSessionConfig() {
+    final audio = <String, dynamic>{
+      'input': {
+        'turn_detection': {
+          'type': 'server_vad',
+          'threshold': vadThreshold,
+          'silence_duration_ms': 500,
+          'create_response': true,
+        },
+      },
+    };
+    if (!textOnly) {
+      audio['output'] = {'voice': voice};
+    }
+
+    final session = <String, dynamic>{
+      'type': 'realtime',
+      'model': model,
+      'instructions': _buildSystemPrompt(),
+      'max_output_tokens': 512,
+      'audio': audio,
+    };
+    if (textOnly) {
+      session['output_modalities'] = ['text'];
+    }
+    if (_isRealtime2) {
+      session['reasoning'] = {'effort': reasoningEffort ?? 'minimal'};
+    }
+    return session;
+  }
+
   Future<void> start() async {
     if (_active) return;
 
@@ -77,35 +114,22 @@ class RealtimeService {
         'Authorization': 'Bearer $apiKey',
         'Content-Type': 'application/json',
       },
-      body: jsonEncode({
-        'session': {
-          'type': 'realtime',
-          'model': model,
-          'instructions': _buildSystemPrompt(),
-          'audio': {
-            'input': {
-              'turn_detection': {
-                'type': 'server_vad',
-                'threshold': vadThreshold,
-                'silence_duration_ms': 500,
-                'create_response': true,
-              },
-            },
-            'output': {'voice': voice},
-          },
-        }
-      }),
+      body: jsonEncode({'session': _buildSessionConfig()}),
     );
 
     if (tokenRes.statusCode != 200 && tokenRes.statusCode != 201) {
-      throw Exception('Failed to create session: ${tokenRes.statusCode} ${tokenRes.body}');
+      throw Exception(
+        'Failed to create session: ${tokenRes.statusCode} ${tokenRes.body}',
+      );
     }
 
     final tokenData = jsonDecode(tokenRes.body);
     final ephemeralKey = tokenData['value'] as String;
 
     _pc = await createPeerConnection({
-      'iceServers': [{'urls': 'stun:stun.l.google.com:19302'}],
+      'iceServers': [
+        {'urls': 'stun:stun.l.google.com:19302'},
+      ],
     });
 
     _remoteRenderer = RTCVideoRenderer();
@@ -132,7 +156,7 @@ class RealtimeService {
         'echoCancellation': true,
         'noiseSuppression': true,
         'autoGainControl': true,
-      }
+      },
     });
     _localTrack = _localStream!.getAudioTracks().first;
     _pc!.addTrack(_localTrack!, _localStream!);
@@ -161,7 +185,9 @@ class RealtimeService {
     );
 
     if (sdpRes.statusCode != 200 && sdpRes.statusCode != 201) {
-      throw Exception('WebRTC connection failed: ${sdpRes.statusCode} ${sdpRes.body}');
+      throw Exception(
+        'WebRTC connection failed: ${sdpRes.statusCode} ${sdpRes.body}',
+      );
     }
 
     await _pc!.setRemoteDescription(
@@ -183,14 +209,20 @@ class RealtimeService {
     switch (type) {
       case 'session.updated':
         final updatedInstr = event['session']?['instructions'] as String? ?? '';
-        debugPrint('[RT] session.updated: instructionsLen=${updatedInstr.length} first100="${updatedInstr.substring(0, updatedInstr.length > 100 ? 100 : updatedInstr.length)}"');
+        debugPrint(
+          '[RT] session.updated: instructionsLen=${updatedInstr.length} first100="${updatedInstr.substring(0, updatedInstr.length > 100 ? 100 : updatedInstr.length)}"',
+        );
         break;
 
       case 'session.created':
         final createdInstr = event['session']?['instructions'] as String? ?? '';
-        final vadConfig = event['session']?['audio']?['input']?['turn_detection'];
-        debugPrint('[RT] session.created: instructionsLen=${createdInstr.length} vad=$vadConfig');
-        if (injectFewShot && _dc?.state == RTCDataChannelState.RTCDataChannelOpen) {
+        final vadConfig =
+            event['session']?['audio']?['input']?['turn_detection'];
+        debugPrint(
+          '[RT] session.created: instructionsLen=${createdInstr.length} vad=$vadConfig',
+        );
+        if (injectFewShot &&
+            _dc?.state == RTCDataChannelState.RTCDataChannelOpen) {
           _injectFewShotExamples();
         }
         _sessionReady?.complete();
@@ -198,7 +230,9 @@ class RealtimeService {
 
       case 'input_audio_buffer.speech_started':
         if (currentResponseId != null) {
-          _dc?.send(RTCDataChannelMessage(jsonEncode({'type': 'response.cancel'})));
+          _dc?.send(
+            RTCDataChannelMessage(jsonEncode({'type': 'response.cancel'})),
+          );
         }
         break;
 
@@ -215,7 +249,9 @@ class RealtimeService {
 
       case 'response.created':
         final respId = event['response']?['id'] as String?;
-        debugPrint('[RT] response.created: id=$respId userItem=$_lastUserItemId');
+        debugPrint(
+          '[RT] response.created: id=$respId userItem=$_lastUserItemId',
+        );
         if (respId != null) {
           currentResponseId = respId;
           final userItem = _lastUserItemId;
@@ -245,7 +281,11 @@ class RealtimeService {
         _safeUnmuteTimer?.cancel();
         _startUnmuteWatchdog(); // safety: unmute if stopped event never fires
         if (_dc?.state == RTCDataChannelState.RTCDataChannelOpen) {
-          _dc!.send(RTCDataChannelMessage(jsonEncode({'type': 'input_audio_buffer.clear'})));
+          _dc!.send(
+            RTCDataChannelMessage(
+              jsonEncode({'type': 'input_audio_buffer.clear'}),
+            ),
+          );
         }
         break;
 
@@ -253,7 +293,11 @@ class RealtimeService {
       case 'output_audio_buffer.cleared':
         // Clear any echo captured in buffer during playback
         if (_dc?.state == RTCDataChannelState.RTCDataChannelOpen) {
-          _dc!.send(RTCDataChannelMessage(jsonEncode({'type': 'input_audio_buffer.clear'})));
+          _dc!.send(
+            RTCDataChannelMessage(
+              jsonEncode({'type': 'input_audio_buffer.clear'}),
+            ),
+          );
         }
         _safeUnmute();
         break;
@@ -265,18 +309,38 @@ class RealtimeService {
         if (rid != null) {
           final turnOutput = turns[rid]?.output ?? '';
           final turnInput = turns[rid]?.input ?? '';
-          debugPrint('[RT] response.done: input="$turnInput" output="${turnOutput.length > 100 ? turnOutput.substring(0, 100) : turnOutput}"');
+          debugPrint(
+            '[RT] response.done: input="$turnInput" output="${turnOutput.length > 100 ? turnOutput.substring(0, 100) : turnOutput}"',
+          );
 
           // Delete conversation items to prevent history bias (configurable)
-          if (deleteConversationItems && status == 'completed' && _dc?.state == RTCDataChannelState.RTCDataChannelOpen) {
+          if (deleteConversationItems &&
+              status == 'completed' &&
+              _dc?.state == RTCDataChannelState.RTCDataChannelOpen) {
             final userItemId = turns[rid]?.userItemId;
             final outputItems = event['response']?['output'] as List?;
-            final assistantItemId = outputItems?.isNotEmpty == true ? outputItems!.first['id'] as String? : null;
+            final assistantItemId = outputItems?.isNotEmpty == true
+                ? outputItems!.first['id'] as String?
+                : null;
             if (userItemId != null) {
-              _dc!.send(RTCDataChannelMessage(jsonEncode({'type': 'conversation.item.delete', 'item_id': userItemId})));
+              _dc!.send(
+                RTCDataChannelMessage(
+                  jsonEncode({
+                    'type': 'conversation.item.delete',
+                    'item_id': userItemId,
+                  }),
+                ),
+              );
             }
             if (assistantItemId != null) {
-              _dc!.send(RTCDataChannelMessage(jsonEncode({'type': 'conversation.item.delete', 'item_id': assistantItemId})));
+              _dc!.send(
+                RTCDataChannelMessage(
+                  jsonEncode({
+                    'type': 'conversation.item.delete',
+                    'item_id': assistantItemId,
+                  }),
+                ),
+              );
             }
           }
 
@@ -302,13 +366,15 @@ class RealtimeService {
   }
 
   bool _aiHold = false;
-  bool _manualMute = false; // set by external muteMic(true), prevents auto-unmute
+  bool _manualMute =
+      false; // set by external muteMic(true), prevents auto-unmute
 
   void enterAIHold() {
     _aiHold = true;
     _cancelUnmuteWatchdog();
     _localTrack?.enabled = false;
-    if (currentResponseId != null && _dc?.state == RTCDataChannelState.RTCDataChannelOpen) {
+    if (currentResponseId != null &&
+        _dc?.state == RTCDataChannelState.RTCDataChannelOpen) {
       _dc!.send(RTCDataChannelMessage(jsonEncode({'type': 'response.cancel'})));
     }
   }
@@ -363,51 +429,74 @@ class RealtimeService {
 
   void _injectFewShotExamples() {
     if (_dc?.state != RTCDataChannelState.RTCDataChannelOpen) return;
-    final examples = AppPrompts.realtimeFewShotExamples(sourceLangCode, targetLangCode);
+    final examples = AppPrompts.realtimeFewShotExamples(
+      sourceLangCode,
+      targetLangCode,
+    );
     for (final ex in examples) {
-      _dc!.send(RTCDataChannelMessage(jsonEncode({
-        'type': 'conversation.item.create',
-        'item': {
-          'type': 'message',
-          'role': 'user',
-          'content': [{'type': 'input_text', 'text': ex['user']}],
-        },
-      })));
-      _dc!.send(RTCDataChannelMessage(jsonEncode({
-        'type': 'conversation.item.create',
-        'item': {
-          'type': 'message',
-          'role': 'assistant',
-          'content': [{'type': 'output_text', 'text': ex['assistant']}],
-        },
-      })));
+      _dc!.send(
+        RTCDataChannelMessage(
+          jsonEncode({
+            'type': 'conversation.item.create',
+            'item': {
+              'type': 'message',
+              'role': 'user',
+              'content': [
+                {'type': 'input_text', 'text': ex['user']},
+              ],
+            },
+          }),
+        ),
+      );
+      _dc!.send(
+        RTCDataChannelMessage(
+          jsonEncode({
+            'type': 'conversation.item.create',
+            'item': {
+              'type': 'message',
+              'role': 'assistant',
+              'content': [
+                {'type': 'output_text', 'text': ex['assistant']},
+              ],
+            },
+          }),
+        ),
+      );
     }
   }
 
   List<Map<String, dynamic>> _buildFewShotInput() {
-    final examples = AppPrompts.realtimeFewShotExamples(sourceLangCode, targetLangCode);
+    final examples = AppPrompts.realtimeFewShotExamples(
+      sourceLangCode,
+      targetLangCode,
+    );
     final items = <Map<String, dynamic>>[];
     for (final ex in examples) {
       items.add({
         'type': 'message',
         'role': 'user',
-        'content': [{'type': 'input_text', 'text': ex['user']}],
+        'content': [
+          {'type': 'input_text', 'text': ex['user']},
+        ],
       });
       items.add({
         'type': 'message',
         'role': 'assistant',
-        'content': [{'type': 'output_text', 'text': ex['assistant']}],
+        'content': [
+          {'type': 'output_text', 'text': ex['assistant']},
+        ],
       });
     }
     return items;
   }
 
-
   String? getResponseIdForItem(String itemId) => _itemToResponse[itemId];
 
   void clearInputBuffer() {
     if (_dc?.state == RTCDataChannelState.RTCDataChannelOpen) {
-      _dc!.send(RTCDataChannelMessage(jsonEncode({'type': 'input_audio_buffer.clear'})));
+      _dc!.send(
+        RTCDataChannelMessage(jsonEncode({'type': 'input_audio_buffer.clear'})),
+      );
     }
   }
 
@@ -421,7 +510,8 @@ class RealtimeService {
   }
 
   void sendCancel() {
-    if (_dc?.state == RTCDataChannelState.RTCDataChannelOpen && currentResponseId != null) {
+    if (_dc?.state == RTCDataChannelState.RTCDataChannelOpen &&
+        currentResponseId != null) {
       _dc!.send(RTCDataChannelMessage(jsonEncode({'type': 'response.cancel'})));
     }
   }
@@ -431,14 +521,20 @@ class RealtimeService {
   void sendText(String text) {
     if (_dc?.state != RTCDataChannelState.RTCDataChannelOpen) return;
     _pendingTextInput = text;
-    _dc!.send(RTCDataChannelMessage(jsonEncode({
-      'type': 'conversation.item.create',
-      'item': {
-        'type': 'message',
-        'role': 'user',
-        'content': [{'type': 'input_text', 'text': text}],
-      },
-    })));
+    _dc!.send(
+      RTCDataChannelMessage(
+        jsonEncode({
+          'type': 'conversation.item.create',
+          'item': {
+            'type': 'message',
+            'role': 'user',
+            'content': [
+              {'type': 'input_text', 'text': text},
+            ],
+          },
+        }),
+      ),
+    );
     _dc!.send(RTCDataChannelMessage(jsonEncode({'type': 'response.create'})));
   }
 

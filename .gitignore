@@ -19,6 +19,8 @@ aws1.pem
 .mcp.json
 
 # Other
+.codex
+.codex/
 *.apk
 node_modules/
 capacitor.config.json

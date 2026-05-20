@@ -5,26 +5,27 @@
 // gestures. You can also use WidgetTester to find child widgets in the widget
 // tree, read text, and verify that the values of widget properties are correct.
 
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:koja_translator/main.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
+  testWidgets('shows API key screen when no key is available', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(const KoJaApp());
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+    expect(find.text('KO ⇄ JA'), findsOneWidget);
+    expect(find.text('OpenAI API Key'), findsOneWidget);
+    expect(find.text('시작'), findsOneWidget);
+  });
 
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
+  testWidgets('opens translator when an API key is provided', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(const KoJaApp(apiKey: 'test-key'));
 
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+    expect(find.text('KO ⇄ JA'), findsNothing);
+    expect(find.textContaining('입력창'), findsWidgets);
   });
 }
