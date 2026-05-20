@@ -162,6 +162,17 @@ const _languageNamesByReader = <String, Map<String, String>>{
   },
 };
 
+const _personLabelsByReader = <String, ({String self, String other})>{
+  'ko': (self: '나', other: '상대'),
+  'ja': (self: '自分', other: '相手'),
+  'zh': (self: '我', other: '对方'),
+  'en': (self: 'Me', other: 'Other'),
+  'de': (self: 'Ich', other: 'Gegenüber'),
+  'fr': (self: 'Moi', other: 'Interlocuteur'),
+  'vi': (self: 'Tôi', other: 'Đối phương'),
+  'ru': (self: 'Я', other: 'Собеседник'),
+};
+
 Language getLangByCode(String code) => supportedLanguages.firstWhere(
   (l) => l.code == code,
   orElse: () => supportedLanguages[0],
@@ -174,4 +185,13 @@ String languageNameForReader(String languageCode, String readerLangCode) {
   final language = getLangByCode(languageCode);
   if (readerLangCode == 'ko') return language.localName;
   return language.name;
+}
+
+String personLabelForReader({
+  required bool isSelf,
+  required String readerLangCode,
+}) {
+  final labels = _personLabelsByReader[readerLangCode];
+  if (labels == null) return isSelf ? 'Me' : 'Other';
+  return isSelf ? labels.self : labels.other;
 }

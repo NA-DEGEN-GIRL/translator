@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io' as java_io;
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -41,9 +42,13 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
   bool _isProcessing = false;
   String _interimText = '';
   String _mirrorInterimText = '';
+  Timer? _interimFlashTimer;
 
   // Realtime
   RealtimeService? _realtime;
+  RealtimeService? _rtPostProcessor;
+  String? _rtPostProcessorKey;
+  Future<void> _rtPostProcessQueue = Future.value();
   bool _realtimeActive = false;
 
   // Realtime (방향) — dual sessions
@@ -70,6 +75,8 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
   String _voiceSource = 'nova';
   String _voiceTarget = 'onyx';
   double _fontSize = 16;
+  double _secondaryFontSize = 11;
+  double _faceV2MicOpacity = 0.82;
   String _micLang = 'ko';
   double _ttsSpeed = 1.0;
   int _pauseSeconds = 3;
@@ -84,6 +91,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
   String _realtimeVoice = 'coral';
   String _realtimeModel = 'gpt-realtime-mini';
   String _detectModel = 'gpt-5.4-nano'; // model for RT language detection
+  String _rtPostProcessMode = 'chat'; // chat or realtime2
   bool _backTranslateSource = true;
   bool _backTranslateTarget = true;
   bool _showPronunciation = false;
@@ -107,9 +115,11 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
   void dispose() {
     _ampSub?.cancel();
     _silenceTimer?.cancel();
+    _interimFlashTimer?.cancel();
     _speech.stopListening();
     _speech.stopSpeaking();
     _realtime?.stop();
+    _rtPostProcessor?.stop();
     _realtimeA?.stop();
     _realtimeB?.stop();
     _recorder.dispose();
@@ -133,6 +143,12 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
       _voiceSource = prefs.getString('voiceSource') ?? 'nova';
       _voiceTarget = prefs.getString('voiceTarget') ?? 'onyx';
       _fontSize = prefs.getDouble('fontSize') ?? 16;
+      _secondaryFontSize = (prefs.getDouble('secondaryFontSize') ?? 11)
+          .clamp(8, 22)
+          .toDouble();
+      _faceV2MicOpacity = (prefs.getDouble('faceV2MicOpacity') ?? 0.82)
+          .clamp(0.45, 1.0)
+          .toDouble();
       final savedMode = prefs.getString('mode') ?? 'openai';
       _mode = (savedMode == 'browser') ? 'openai' : savedMode; // migrate legacy
       final savedModel = prefs.getString('model') ?? 'gpt-5.4-nano';
@@ -148,6 +164,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
       _realtimeVoice = prefs.getString('realtimeVoice') ?? 'coral';
       _realtimeModel = prefs.getString('realtimeModel') ?? 'gpt-realtime-mini';
       _detectModel = prefs.getString('detectModel') ?? 'gpt-5.4-nano';
+      _rtPostProcessMode = prefs.getString('rtPostProcessMode') ?? 'chat';
       _backTranslateSource = prefs.getBool('backTranslateSource') ?? true;
       _backTranslateTarget = prefs.getBool('backTranslateTarget') ?? true;
       _showPronunciation = prefs.getBool('showPronunciation') ?? false;
@@ -176,6 +193,8 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     prefs.setString('voiceSource', _voiceSource);
     prefs.setString('voiceTarget', _voiceTarget);
     prefs.setDouble('fontSize', _fontSize);
+    prefs.setDouble('secondaryFontSize', _secondaryFontSize);
+    prefs.setDouble('faceV2MicOpacity', _faceV2MicOpacity);
     prefs.setString('mode', _mode);
     prefs.setString('model', _model);
     prefs.setString('aiModel', _aiModel);
@@ -186,6 +205,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     prefs.setString('realtimeVoice', _realtimeVoice);
     prefs.setString('realtimeModel', _realtimeModel);
     prefs.setString('detectModel', _detectModel);
+    prefs.setString('rtPostProcessMode', _rtPostProcessMode);
     prefs.setBool('backTranslateSource', _backTranslateSource);
     prefs.setBool('backTranslateTarget', _backTranslateTarget);
     prefs.setBool('showPronunciation', _showPronunciation);
@@ -217,6 +237,8 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
           voiceSource: _voiceSource,
           voiceTarget: _voiceTarget,
           fontSize: _fontSize,
+          secondaryFontSize: _secondaryFontSize,
+          faceV2MicOpacity: _faceV2MicOpacity,
           ttsSpeed: _ttsSpeed,
           pauseSeconds: _aiMode ? _aiPauseSeconds : _pauseSeconds,
           noiseThreshold: _noiseThreshold,
@@ -268,11 +290,13 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
               _sourceLang = v;
               _micLang = v;
             });
+            _discardRealtimePostProcessor();
             setSheetState(() {});
             _saveSettings();
           },
           onTargetLangChanged: (v) {
             setState(() => _targetLang = v);
+            _discardRealtimePostProcessor();
             setSheetState(() {});
             _saveSettings();
           },
@@ -305,6 +329,16 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
           },
           onFontSizeChanged: (v) {
             setState(() => _fontSize = v);
+            setSheetState(() {});
+            _saveSettings();
+          },
+          onSecondaryFontSizeChanged: (v) {
+            setState(() => _secondaryFontSize = v);
+            setSheetState(() {});
+            _saveSettings();
+          },
+          onFaceV2MicOpacityChanged: (v) {
+            setState(() => _faceV2MicOpacity = v);
             setSheetState(() {});
             _saveSettings();
           },
@@ -361,6 +395,13 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
           pronunciationTemp: _pronunciationTemp,
           onPronunciationTempChanged: (v) {
             setState(() => _pronunciationTemp = v);
+            setSheetState(() {});
+            _saveSettings();
+          },
+          rtPostProcessMode: _rtPostProcessMode,
+          onRtPostProcessModeChanged: (v) {
+            setState(() => _rtPostProcessMode = v);
+            _discardRealtimePostProcessor();
             setSheetState(() {});
             _saveSettings();
           },
@@ -1113,6 +1154,34 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     }
   }
 
+  void _discardRealtimePostProcessor() {
+    _rtPostProcessor?.stop();
+    _rtPostProcessor = null;
+    _rtPostProcessorKey = null;
+    _rtPostProcessQueue = Future.value();
+  }
+
+  void _flashInterimText(
+    String text, {
+    String? mirrorText,
+    Duration duration = const Duration(milliseconds: 1800),
+  }) {
+    final peerText = mirrorText ?? text;
+    _interimFlashTimer?.cancel();
+    if (!mounted) return;
+    setState(() {
+      _interimText = text;
+      _mirrorInterimText = peerText;
+    });
+    _interimFlashTimer = Timer(duration, () {
+      if (!mounted) return;
+      setState(() {
+        if (_interimText == text) _interimText = '';
+        if (_mirrorInterimText == peerText) _mirrorInterimText = '';
+      });
+    });
+  }
+
   // ===== Realtime =====
   Future<void> _startRealtime() async {
     if (_realtimeActive) return;
@@ -1136,10 +1205,8 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
 
     try {
       await _realtime!.start();
-      setState(() {
-        _realtimeActive = true;
-        _interimText = 'Realtime 활성 — 말하세요';
-      });
+      setState(() => _realtimeActive = true);
+      _flashInterimText('Realtime 활성', mirrorText: 'Realtime 有効');
       _updateRealtimeAudioMute();
       // If AI mode is active, enter hold immediately
       if (_aiMode) {
@@ -1222,10 +1289,8 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
         _realtimeB!.muteMic(false);
       }
       _activeDirectionalSession = initialSession;
-      setState(() {
-        _realtimeActive = true;
-        _interimText = 'Realtime (방향) 활성';
-      });
+      setState(() => _realtimeActive = true);
+      _flashInterimText('Realtime 활성', mirrorText: 'Realtime 有効');
       _updateRealtimeAudioMute();
     } catch (e) {
       await _realtimeA?.stop();
@@ -1573,6 +1638,123 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     return null;
   }
 
+  String _rtPostProcessorInstructions() {
+    final source = getLangByCode(_sourceLang).name;
+    final target = getLangByCode(_targetLang).name;
+    return '''
+You are a text-only post-processor for a realtime translation app.
+
+The language pair is:
+- source: $_sourceLang ($source)
+- target: $_targetLang ($target)
+
+Return valid JSON only. Do not add markdown.
+
+Rules:
+- detected_lang_code must be exactly "$_sourceLang" or "$_targetLang".
+- If known_output_lang_code is provided, use it unless the text is clearly the other language.
+- If need_back_translation is true, translate input_text into the opposite language.
+- If detected_lang_code is "$_sourceLang", back_translation must be in "$_targetLang".
+- If detected_lang_code is "$_targetLang", back_translation must be in "$_sourceLang".
+- Never translate back_translation into English unless the requested opposite language is English.
+- If need_pronunciation is true, provide Korean Hangul pronunciation for Japanese/Chinese/Russian/Vietnamese/French/German text when useful.
+- If pronunciation is not useful, Korean, or English, use null.
+
+Schema:
+{"detected_lang_code":"$_sourceLang|$_targetLang","back_translation":"<text or null>","pronunciation":"<hangul or null>"}
+''';
+  }
+
+  Future<RealtimeService> _ensureRealtimePostProcessor() async {
+    final key = '$_sourceLang|$_targetLang|$_showPronunciation';
+    final current = _rtPostProcessor;
+    if (current != null && current.isActive && _rtPostProcessorKey == key) {
+      return current;
+    }
+
+    await current?.stop();
+    final service = RealtimeService(
+      apiKey: widget.apiKey,
+      model: 'gpt-realtime-2',
+      voice: _realtimeVoice,
+      sourceLangCode: _sourceLang,
+      targetLangCode: _targetLang,
+      instructions: _rtPostProcessorInstructions(),
+      deleteConversationItems: true,
+      injectFewShot: false,
+      textOnly: true,
+      useMicrophone: false,
+      reasoningEffort: 'minimal',
+      onEvent: (_, __) {},
+    );
+    await service.start();
+    _rtPostProcessor = service;
+    _rtPostProcessorKey = key;
+    return service;
+  }
+
+  String? _cleanPostProcessString(dynamic value) {
+    if (value == null) return null;
+    final text = value.toString().trim();
+    if (text.isEmpty || text.toLowerCase() == 'null') return null;
+    return text;
+  }
+
+  Map<String, String?> _decodeRealtimePostProcessJson(String raw) {
+    var text = raw.trim();
+    if (text.startsWith('```')) {
+      text = text
+          .replaceFirst(RegExp(r'^```(?:json)?\s*'), '')
+          .replaceFirst(RegExp(r'\s*```$'), '')
+          .trim();
+    }
+    final start = text.indexOf('{');
+    final end = text.lastIndexOf('}');
+    if (start >= 0 && end > start) {
+      text = text.substring(start, end + 1);
+    }
+    final decoded = jsonDecode(text) as Map<String, dynamic>;
+    return {
+      'detected_lang_code': _cleanPostProcessString(
+        decoded['detected_lang_code'],
+      ),
+      'back_translation': _cleanPostProcessString(decoded['back_translation']),
+      'pronunciation': _cleanPostProcessString(decoded['pronunciation']),
+    };
+  }
+
+  Future<Map<String, String?>> _queuedRealtime2PostProcess(
+    String output, {
+    String? knownOutputLangCode,
+    required bool needBackTranslation,
+    required bool needPronunciation,
+  }) {
+    final task = _rtPostProcessQueue.then((_) async {
+      final service = await _ensureRealtimePostProcessor();
+      final payload = jsonEncode({
+        'input_text': output,
+        'source': {
+          'code': _sourceLang,
+          'name': getLangByCode(_sourceLang).name,
+        },
+        'target': {
+          'code': _targetLang,
+          'name': getLangByCode(_targetLang).name,
+        },
+        'known_output_lang_code': knownOutputLangCode,
+        'need_back_translation': needBackTranslation,
+        'need_pronunciation': needPronunciation,
+      });
+      final raw = await service.sendTextForResult(
+        payload,
+        timeout: const Duration(seconds: 10),
+      );
+      return _decodeRealtimePostProcessJson(raw);
+    });
+    _rtPostProcessQueue = task.then<void>((_) {}, onError: (_) {});
+    return task;
+  }
+
   /// Async post-process for Realtime: detect language, back-translate,
   /// and pronunciation in a single fast JSON call.
   Future<void> _asyncRealtimePostProcess(
@@ -1596,8 +1778,26 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     }
 
     var result = <String, String?>{};
+    var usedRealtime2PostProcess = false;
     final needsPostProcess = detectedLang == null || _showPronunciation;
-    if (needsPostProcess) {
+    final shouldTryRealtime2PostProcess =
+        _rtPostProcessMode == 'realtime2' &&
+        (needsPostProcess || wantsAnyBackTranslation);
+    if (shouldTryRealtime2PostProcess) {
+      try {
+        result = await _queuedRealtime2PostProcess(
+          output,
+          knownOutputLangCode: detectedLang,
+          needBackTranslation: wantsAnyBackTranslation,
+          needPronunciation: _showPronunciation,
+        );
+        usedRealtime2PostProcess = true;
+      } catch (_) {
+        _discardRealtimePostProcessor();
+      }
+    }
+
+    if (!usedRealtime2PostProcess && needsPostProcess) {
       try {
         result = await _openai.realtimePostProcess(
           output,
@@ -1634,13 +1834,24 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     final expectedBackTranslationLangCode = outputIsTarget
         ? _sourceLang
         : _targetLang;
-    final backTranslation = wantBackTranslation
-        ? await _realtimeBackTranslate(
-            output: output,
-            outputLangCode: detectedLang,
-            targetLangCode: expectedBackTranslationLangCode,
-          )
-        : null;
+    String? backTranslation;
+    if (wantBackTranslation) {
+      final candidate = usedRealtime2PostProcess
+          ? result['back_translation']?.trim()
+          : null;
+      if (candidate != null &&
+          _backTranslationLooksCompatible(
+            candidate,
+            expectedBackTranslationLangCode,
+          )) {
+        backTranslation = candidate;
+      }
+      backTranslation ??= await _realtimeBackTranslate(
+        output: output,
+        outputLangCode: detectedLang,
+        targetLangCode: expectedBackTranslationLangCode,
+      );
+    }
     var pronunciation = _showPronunciation ? result['pronunciation'] : null;
     if (_showPronunciation && pronunciation == null) {
       final pronunciationSource = _realtimePronunciationSource(
@@ -1686,9 +1897,13 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
   Widget _buildChatList(
     ScrollController controller, {
     bool showEmptyHint = true,
+    double bottomPadding = 8,
+    String? selfLang,
+    String? readerLang,
+    bool useRoleLabels = false,
   }) {
     if (_messages.isEmpty) {
-      if (!showEmptyHint || _displayMode == 'face_v2') {
+      if (!showEmptyHint || _displayMode != 'one') {
         return const SizedBox.expand();
       }
       return Center(
@@ -1700,14 +1915,18 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     }
     return ListView.builder(
       controller: controller,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      padding: EdgeInsets.fromLTRB(12, 8, 12, bottomPadding),
       itemCount: _messages.length,
       itemBuilder: (context, index) {
         final msg = _messages[index];
         return ChatBubble(
           message: msg,
           fontSize: _fontSize,
+          secondaryFontSize: _secondaryFontSize,
           sourceLang: _sourceLang,
+          selfLang: selfLang ?? _sourceLang,
+          readerLang: readerLang ?? _sourceLang,
+          useRoleLabels: useRoleLabels,
           onReplay: () => _replayMessage(msg),
         );
       },
@@ -2093,15 +2312,21 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     );
   }
 
+  String _rolePairTitle(String readerLang) {
+    final self = personLabelForReader(isSelf: true, readerLangCode: readerLang);
+    final other = personLabelForReader(
+      isSelf: false,
+      readerLangCode: readerLang,
+    );
+    return '$self <-> $other';
+  }
+
   Widget _buildFaceV2Half({required bool mirror}) {
     final accent = mirror ? const Color(0xFFE85D75) : const Color(0xFF4A90D9);
     final soft = mirror ? const Color(0xFFFFF6F8) : const Color(0xFFF3F8FF);
     final readerLang = mirror ? _targetLang : _sourceLang;
-    final sourceName = languageNameForReader(_sourceLang, readerLang);
-    final targetName = languageNameForReader(_targetLang, readerLang);
-    final pairTitle = mirror
-        ? '$targetName <-> $sourceName'
-        : '$sourceName <-> $targetName';
+    final selfLang = mirror ? _targetLang : _sourceLang;
+    final pairTitle = _rolePairTitle(readerLang);
     final controller = mirror ? _mirrorScrollController : _myScrollController;
     final interim = mirror ? _mirrorInterimText : _interimText;
     return Container(
@@ -2127,21 +2352,25 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
                 ),
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(22),
-                  child: _buildChatList(controller, showEmptyHint: false),
+                  child: Stack(
+                    children: [
+                      Positioned.fill(
+                        child: _buildChatList(
+                          controller,
+                          showEmptyHint: false,
+                          bottomPadding: 104,
+                          selfLang: selfLang,
+                          readerLang: readerLang,
+                          useRoleLabels: true,
+                        ),
+                      ),
+                      _buildFaceV2FloatingMic(mirror: mirror, accent: accent),
+                      _buildFaceV2StatusOverlay(text: interim, accent: accent),
+                    ],
+                  ),
                 ),
               ),
             ),
-            if (interim.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 6),
-                child: Text(
-                  interim,
-                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.center,
-                ),
-              ),
             if (!mirror && _isProcessing)
               Padding(
                 padding: const EdgeInsets.only(bottom: 6),
@@ -2154,8 +2383,58 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
                   ),
                 ),
               ),
-            _buildFaceV2ActionRow(mirror: mirror, accent: accent),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFaceV2StatusOverlay({
+    required String text,
+    required Color accent,
+  }) {
+    return Positioned(
+      top: 14,
+      left: 18,
+      right: 18,
+      child: IgnorePointer(
+        child: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 220),
+          switchInCurve: Curves.easeOutCubic,
+          switchOutCurve: Curves.easeInCubic,
+          transitionBuilder: (child, animation) {
+            return FadeTransition(
+              opacity: animation,
+              child: SlideTransition(
+                position: Tween<Offset>(
+                  begin: const Offset(0, -0.16),
+                  end: Offset.zero,
+                ).animate(animation),
+                child: child,
+              ),
+            );
+          },
+          child: text.isEmpty
+              ? const SizedBox.shrink(key: ValueKey('face-v2-status-empty'))
+              : Opacity(
+                  key: ValueKey('face-v2-status-$text'),
+                  opacity: 0.72,
+                  child: Text(
+                    text,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: accent.withValues(alpha: 0.78),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
+                      shadows: const [
+                        Shadow(color: Colors.white, blurRadius: 10),
+                        Shadow(color: Colors.white, blurRadius: 18),
+                      ],
+                    ),
+                  ),
+                ),
         ),
       ),
     );
@@ -2188,7 +2467,10 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
     );
   }
 
-  Widget _buildFaceV2ActionRow({required bool mirror, required Color accent}) {
+  Widget _buildFaceV2FloatingMic({
+    required bool mirror,
+    required Color accent,
+  }) {
     final action = _faceV2MicAction(mirror: mirror);
     final mic = _buildFaceV2Mic(
       langCode: action.langCode,
@@ -2198,10 +2480,13 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
       onTap: action.onTap,
     );
 
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 2),
-      child: Align(
-        alignment: mirror ? Alignment.centerLeft : Alignment.centerRight,
+    return Positioned(
+      bottom: 12,
+      left: mirror ? 12 : null,
+      right: mirror ? null : 12,
+      child: AnimatedOpacity(
+        opacity: _faceV2MicOpacity,
+        duration: const Duration(milliseconds: 160),
         child: mic,
       ),
     );
@@ -2382,7 +2667,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
                           ),
                         ),
                         child: Text(
-                          '${getLangByCode(_targetLang).name}⇄${getLangByCode(_sourceLang).name}',
+                          _rolePairTitle(_targetLang),
                           style: TextStyle(
                             fontSize: 11,
                             fontWeight: FontWeight.w600,
@@ -2392,7 +2677,14 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
                         ),
                       ),
                       // Chat
-                      Expanded(child: _buildChatList(_mirrorScrollController)),
+                      Expanded(
+                        child: _buildChatList(
+                          _mirrorScrollController,
+                          selfLang: _targetLang,
+                          readerLang: _targetLang,
+                          useRoleLabels: true,
+                        ),
+                      ),
                       // Mirror mic
                       Container(
                         padding: const EdgeInsets.symmetric(
@@ -2512,7 +2804,9 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
                       ),
                     ),
                     child: Text(
-                      '${getLangByCode(_sourceLang).name}⇄${getLangByCode(_targetLang).name}',
+                      _displayMode == 'face'
+                          ? _rolePairTitle(_sourceLang)
+                          : '${getLangByCode(_sourceLang).name}⇄${getLangByCode(_targetLang).name}',
                       style: TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.w600,
@@ -2522,7 +2816,14 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
                     ),
                   ),
                   // Chat
-                  Expanded(child: _buildChatList(_myScrollController)),
+                  Expanded(
+                    child: _buildChatList(
+                      _myScrollController,
+                      selfLang: _sourceLang,
+                      readerLang: _sourceLang,
+                      useRoleLabels: _displayMode == 'face',
+                    ),
+                  ),
                   // Interim text
                   if (_interimText.isNotEmpty)
                     Padding(
@@ -2682,8 +2983,8 @@ class _FaceV2MicButtonState extends State<_FaceV2MicButton>
           final beat = widget.isActive ? _beat.value : 0.0;
 
           return SizedBox(
-            width: 112,
-            height: 112,
+            width: 92,
+            height: 92,
             child: Stack(
               clipBehavior: Clip.none,
               alignment: Alignment.center,
@@ -2692,8 +2993,8 @@ class _FaceV2MicButtonState extends State<_FaceV2MicButton>
                   Transform.scale(
                     scale: 1.0 + beat * 0.42,
                     child: Container(
-                      width: 92,
-                      height: 92,
+                      width: 76,
+                      height: 76,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
                         color: activeColor.withOpacity(
@@ -2706,8 +3007,8 @@ class _FaceV2MicButtonState extends State<_FaceV2MicButton>
                   Transform.scale(
                     scale: 1.0 + beat * 0.56,
                     child: Container(
-                      width: 84,
-                      height: 84,
+                      width: 70,
+                      height: 70,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
                         border: Border.all(
@@ -2722,8 +3023,8 @@ class _FaceV2MicButtonState extends State<_FaceV2MicButton>
                 Transform.scale(
                   scale: 1.0 + beat * 0.12,
                   child: Container(
-                    width: 76,
-                    height: 76,
+                    width: 62,
+                    height: 62,
                     padding: const EdgeInsets.symmetric(
                       horizontal: 10,
                       vertical: 10,
@@ -2749,8 +3050,8 @@ class _FaceV2MicButtonState extends State<_FaceV2MicButton>
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        const Icon(Icons.mic, color: Colors.white, size: 26),
-                        const SizedBox(height: 3),
+                        const Icon(Icons.mic, color: Colors.white, size: 23),
+                        const SizedBox(height: 2),
                         Text(
                           widget.label,
                           maxLines: 1,
@@ -2758,7 +3059,7 @@ class _FaceV2MicButtonState extends State<_FaceV2MicButton>
                           textAlign: TextAlign.center,
                           style: const TextStyle(
                             color: Colors.white,
-                            fontSize: 11,
+                            fontSize: 10,
                             fontWeight: FontWeight.w900,
                           ),
                         ),

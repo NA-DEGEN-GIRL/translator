@@ -30,6 +30,8 @@ class SettingsSheet extends StatefulWidget {
   final String voiceSource;
   final String voiceTarget;
   final double fontSize;
+  final double secondaryFontSize;
+  final double faceV2MicOpacity;
   final double ttsSpeed;
   final int pauseSeconds;
   final double noiseThreshold;
@@ -54,6 +56,8 @@ class SettingsSheet extends StatefulWidget {
   final ValueChanged<String> onVoiceSourceChanged;
   final ValueChanged<String> onVoiceTargetChanged;
   final ValueChanged<double> onFontSizeChanged;
+  final ValueChanged<double> onSecondaryFontSizeChanged;
+  final ValueChanged<double> onFaceV2MicOpacityChanged;
   final ValueChanged<double> onTtsSpeedChanged;
   final ValueChanged<int> onPauseSecondsChanged;
   final ValueChanged<double> onNoiseThresholdChanged;
@@ -70,6 +74,8 @@ class SettingsSheet extends StatefulWidget {
   final ValueChanged<double> onClassifyTempChanged;
   final double pronunciationTemp;
   final ValueChanged<double> onPronunciationTempChanged;
+  final String rtPostProcessMode;
+  final ValueChanged<String> onRtPostProcessModeChanged;
   final String detectModel;
   final bool backTranslateSource;
   final bool backTranslateTarget;
@@ -96,6 +102,8 @@ class SettingsSheet extends StatefulWidget {
     required this.voiceSource,
     required this.voiceTarget,
     required this.fontSize,
+    this.secondaryFontSize = 11,
+    this.faceV2MicOpacity = 0.82,
     required this.ttsSpeed,
     required this.pauseSeconds,
     required this.noiseThreshold,
@@ -120,6 +128,8 @@ class SettingsSheet extends StatefulWidget {
     required this.onVoiceSourceChanged,
     required this.onVoiceTargetChanged,
     required this.onFontSizeChanged,
+    required this.onSecondaryFontSizeChanged,
+    required this.onFaceV2MicOpacityChanged,
     required this.onTtsSpeedChanged,
     required this.onPauseSecondsChanged,
     required this.onNoiseThresholdChanged,
@@ -136,6 +146,8 @@ class SettingsSheet extends StatefulWidget {
     required this.onClassifyTempChanged,
     this.pronunciationTemp = 0.3,
     required this.onPronunciationTempChanged,
+    this.rtPostProcessMode = 'chat',
+    required this.onRtPostProcessModeChanged,
     this.detectModel = 'gpt-5.4-nano',
     this.backTranslateSource = true,
     this.backTranslateTarget = true,
@@ -325,6 +337,34 @@ class _SettingsSheetState extends State<SettingsSheet> {
                 'face_v2' => '새 대면 UI 실험 화면 (기능은 기존 로직 사용)',
                 _ => '양쪽 화면이 같은 방향 (내가 둘 다 봄)',
               }, style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+              _sliderTile(
+                '번역문',
+                widget.fontSize,
+                min: 12,
+                max: 34,
+                divisions: 22,
+                onChanged: widget.onFontSizeChanged,
+                valueLabel: widget.fontSize.round().toString(),
+              ),
+              _sliderTile(
+                '보조글자',
+                widget.secondaryFontSize,
+                min: 8,
+                max: 22,
+                divisions: 14,
+                onChanged: widget.onSecondaryFontSizeChanged,
+                valueLabel: widget.secondaryFontSize.round().toString(),
+              ),
+              if (widget.displayMode == 'face_v2')
+                _sliderTile(
+                  '마이크 투명도',
+                  widget.faceV2MicOpacity,
+                  min: 0.45,
+                  max: 1.0,
+                  divisions: 11,
+                  onChanged: widget.onFaceV2MicOpacityChanged,
+                  valueLabel: '${(widget.faceV2MicOpacity * 100).round()}%',
+                ),
               const SizedBox(height: 12),
 
               // === 모드 ===
@@ -419,6 +459,12 @@ class _SettingsSheetState extends State<SettingsSheet> {
               ),
               if (_isRt) ...[
                 _dropdownTile(
+                  'RT 후처리 방식',
+                  widget.rtPostProcessMode,
+                  {'chat': 'Chat 안정', 'realtime2': 'Realtime 2.0 실험'},
+                  widget.onRtPostProcessModeChanged,
+                ),
+                _dropdownTile(
                   'RT 후처리 모델',
                   widget.detectModel,
                   SettingsSheet._chatModels,
@@ -512,21 +558,6 @@ class _SettingsSheetState extends State<SettingsSheet> {
                     'coral': '여2',
                   }, widget.onVoiceTargetChanged),
               ],
-              _dropdownTile(
-                '크기',
-                widget.fontSize.toInt().toString(),
-                {
-                  '12': '12',
-                  '14': '14',
-                  '16': '16',
-                  '18': '18',
-                  '20': '20',
-                  '24': '24',
-                  '28': '28',
-                  '32': '32',
-                },
-                (v) => widget.onFontSizeChanged(double.parse(v)),
-              ),
               // TTS speed (legacy browser mode removed)
               const SizedBox(height: 12),
 
@@ -760,6 +791,46 @@ class _SettingsSheetState extends State<SettingsSheet> {
                 ),
                 border: OutlineInputBorder(),
               ),
+              style: const TextStyle(fontSize: 12, color: Colors.black87),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _sliderTile(
+    String label,
+    double value, {
+    required double min,
+    required double max,
+    required int divisions,
+    required ValueChanged<double> onChanged,
+    required String valueLabel,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 80,
+            child: Text(label, style: const TextStyle(fontSize: 12)),
+          ),
+          Expanded(
+            child: Slider(
+              value: value.clamp(min, max).toDouble(),
+              min: min,
+              max: max,
+              divisions: divisions,
+              label: valueLabel,
+              onChanged: onChanged,
+            ),
+          ),
+          SizedBox(
+            width: 38,
+            child: Text(
+              valueLabel,
+              textAlign: TextAlign.right,
               style: const TextStyle(fontSize: 12, color: Colors.black87),
             ),
           ),

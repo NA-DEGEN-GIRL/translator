@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 
+import '../models/language.dart';
+
 class ChatMessage {
   final String original;
   final String translated;
@@ -26,14 +28,22 @@ class ChatBubble extends StatelessWidget {
   final ChatMessage message;
   final VoidCallback? onReplay;
   final double fontSize;
+  final double secondaryFontSize;
   final String sourceLang;
+  final String selfLang;
+  final String readerLang;
+  final bool useRoleLabels;
 
   const ChatBubble({
     super.key,
     required this.message,
     this.onReplay,
     this.fontSize = 16,
+    this.secondaryFontSize = 11,
     this.sourceLang = 'ko',
+    this.selfLang = 'ko',
+    this.readerLang = 'ko',
+    this.useRoleLabels = false,
   });
 
   static const _latinLangs = {'en', 'de', 'fr', 'vi'};
@@ -77,14 +87,20 @@ class ChatBubble extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (message.isAI) return _buildAIBubble(context);
-    if (_isLatinPair) return _buildNeutralBubble(context);
+    if (_isLatinPair && !useRoleLabels) return _buildNeutralBubble(context);
 
     final parts = message.direction.split('2');
     final fromLang = parts.isNotEmpty ? parts[0] : '';
     final toLang = parts.length > 1 ? parts[1] : '';
-    final label = '${fromLang.toUpperCase()}→${toLang.toUpperCase()}';
 
     final isFromSource = fromLang == sourceLang;
+    final isSelfSpeaker = fromLang == selfLang;
+    final label = useRoleLabels
+        ? personLabelForReader(
+            isSelf: isSelfSpeaker,
+            readerLangCode: readerLang,
+          )
+        : '${fromLang.toUpperCase()}→${toLang.toUpperCase()}';
     final accentColor = isFromSource
         ? const Color(0xFF4A90D9)
         : const Color(0xFFE85D75);
@@ -93,7 +109,7 @@ class ChatBubble extends StatelessWidget {
         : const Color(0xFFFFF0F3);
 
     return Align(
-      alignment: isFromSource ? Alignment.centerRight : Alignment.centerLeft,
+      alignment: isSelfSpeaker ? Alignment.centerRight : Alignment.centerLeft,
       child: IntrinsicWidth(
         child: Container(
           margin: const EdgeInsets.only(bottom: 10),
@@ -103,8 +119,8 @@ class ChatBubble extends StatelessWidget {
           ),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.only(
-              topLeft: Radius.circular(isFromSource ? 12 : 2),
-              topRight: Radius.circular(isFromSource ? 2 : 12),
+              topLeft: Radius.circular(isSelfSpeaker ? 12 : 2),
+              topRight: Radius.circular(isSelfSpeaker ? 2 : 12),
               bottomLeft: const Radius.circular(12),
               bottomRight: const Radius.circular(12),
             ),
@@ -117,12 +133,12 @@ class ChatBubble extends StatelessWidget {
               _buildHeader(
                 label: label,
                 accentColor: accentColor,
-                alignEnd: isFromSource,
+                alignEnd: isSelfSpeaker,
               ),
               _buildCopyableTranslation(
                 context: context,
                 cardColor: cardColor,
-                alignEnd: isFromSource,
+                alignEnd: isSelfSpeaker,
               ),
             ],
           ),
@@ -150,7 +166,9 @@ class ChatBubble extends StatelessWidget {
               Text(
                 label,
                 style: TextStyle(
-                  fontSize: fontSize * 0.45,
+                  fontSize: (secondaryFontSize * 0.75)
+                      .clamp(8.0, 12.0)
+                      .toDouble(),
                   fontWeight: FontWeight.w700,
                   color: accentColor.withOpacity(0.6),
                   letterSpacing: 0.8,
@@ -174,7 +192,7 @@ class ChatBubble extends StatelessWidget {
             SelectableText(
               message.original,
               style: TextStyle(
-                fontSize: fontSize * 0.7,
+                fontSize: secondaryFontSize,
                 color: accentColor.withOpacity(0.65),
               ),
               textAlign: alignEnd ? TextAlign.right : TextAlign.left,
@@ -216,7 +234,7 @@ class ChatBubble extends StatelessWidget {
                 SelectableText(
                   message.backTranslation!,
                   style: TextStyle(
-                    fontSize: fontSize * 0.6,
+                    fontSize: secondaryFontSize,
                     color: const Color(0xFF718096),
                   ),
                   textAlign: alignEnd ? TextAlign.right : TextAlign.left,
@@ -227,7 +245,9 @@ class ChatBubble extends StatelessWidget {
                 SelectableText(
                   message.pronunciation!,
                   style: TextStyle(
-                    fontSize: fontSize * 0.55,
+                    fontSize: (secondaryFontSize * 0.92)
+                        .clamp(8.0, 20.0)
+                        .toDouble(),
                     fontStyle: FontStyle.italic,
                     color: const Color(0xFF9B59B6),
                   ),
@@ -290,7 +310,7 @@ class ChatBubble extends StatelessWidget {
               child: Text(
                 message.original,
                 style: TextStyle(
-                  fontSize: fontSize * 0.75,
+                  fontSize: secondaryFontSize,
                   color: Colors.grey.shade700,
                 ),
                 textAlign: TextAlign.right,
