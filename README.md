@@ -73,7 +73,7 @@ OpenAI Realtime API를 사용한 실시간 음성-음성 통역입니다.
 | **마이크 투명도** | 대면 v2의 떠 있는 말하기 버튼 투명도 | 대면 v2 |
 | **번역 모델** | GPT 5.5 / 5.4 / 5.4-mini / 5.4-nano | Ping-Pong |
 | **RT 모델** | Realtime mini / standard / 1.5 / 2.0 | Realtime |
-| **RT 후처리 방식** | Chat 안정 모드 또는 별도 Realtime 2.0 텍스트 세션 실험 모드 | Realtime |
+| **RT 후처리 방식** | Chat 안정 모드 또는 별도 Realtime 2.0 WebSocket 텍스트 세션 실험 모드 | Realtime |
 | **RT 후처리 모델** | Realtime 역번역, 발음, 언어 후처리용 Chat Completions 모델 | Realtime |
 | **번역 톤** | 기본 / 예의 / 친구 | 전체 |
 | **소스 TTS** | 소스 언어 음성 출력 on/off | 전체 |

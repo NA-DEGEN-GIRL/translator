@@ -10,6 +10,7 @@ import 'package:record/record.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:http/http.dart' as http_client;
 import '../services/openai_service.dart';
+import '../services/realtime_postprocess_ws_service.dart';
 import '../services/speech_service.dart';
 import '../services/realtime_service.dart';
 import '../widgets/chat_bubble.dart';
@@ -46,7 +47,7 @@ class _TranslatorScreenState extends State<TranslatorScreen> {
 
   // Realtime
   RealtimeService? _realtime;
-  RealtimeService? _rtPostProcessor;
+  RealtimePostProcessWsService? _rtPostProcessor;
   String? _rtPostProcessorKey;
   Future<void> _rtPostProcessQueue = Future.value();
   bool _realtimeActive = false;
@@ -1665,7 +1666,7 @@ Schema:
 ''';
   }
 
-  Future<RealtimeService> _ensureRealtimePostProcessor() async {
+  Future<RealtimePostProcessWsService> _ensureRealtimePostProcessor() async {
     final key = '$_sourceLang|$_targetLang|$_showPronunciation';
     final current = _rtPostProcessor;
     if (current != null && current.isActive && _rtPostProcessorKey == key) {
@@ -1673,19 +1674,10 @@ Schema:
     }
 
     await current?.stop();
-    final service = RealtimeService(
+    final service = RealtimePostProcessWsService(
       apiKey: widget.apiKey,
-      model: 'gpt-realtime-2',
-      voice: _realtimeVoice,
-      sourceLangCode: _sourceLang,
-      targetLangCode: _targetLang,
       instructions: _rtPostProcessorInstructions(),
-      deleteConversationItems: true,
-      injectFewShot: false,
-      textOnly: true,
-      useMicrophone: false,
       reasoningEffort: 'minimal',
-      onEvent: (_, __) {},
     );
     await service.start();
     _rtPostProcessor = service;

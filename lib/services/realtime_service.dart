@@ -24,7 +24,6 @@ class RealtimeService {
   final bool deleteConversationItems;
   final bool injectFewShot;
   final bool textOnly;
-  final bool useMicrophone;
   final String? reasoningEffort;
   final void Function(String type, Map<String, dynamic> event) onEvent;
 
@@ -38,9 +37,6 @@ class RealtimeService {
   Completer<void>? _sessionReady;
   Timer? _unmuteWatchdog;
   Timer? _safeUnmuteTimer;
-  Future<void> _textResultChain = Future.value();
-  Completer<String>? _pendingTextCompleter;
-  final Map<String, Completer<String>> _textResponseCompleters = {};
 
   final Map<String, RealtimeTurn> turns = {}; // keyed by response_id
   final Map<String, String> _itemToResponse = {}; // user item_id → response_id
@@ -59,7 +55,6 @@ class RealtimeService {
     this.deleteConversationItems = true,
     this.injectFewShot = true,
     this.textOnly = false,
-    this.useMicrophone = true,
     this.reasoningEffort,
     required this.onEvent,
   });
@@ -99,11 +94,9 @@ class RealtimeService {
       'model': model,
       'instructions': _buildSystemPrompt(),
       'max_output_tokens': 512,
+      'audio': audio,
     };
-    if (useMicrophone) {
-      session['audio'] = audio;
-    }
-    if (textOnly || !useMicrophone) {
+    if (textOnly) {
       session['output_modalities'] = ['text'];
     }
     if (_isRealtime2) {
@@ -158,17 +151,15 @@ class RealtimeService {
       }
     };
 
-    if (useMicrophone) {
-      _localStream = await navigator.mediaDevices.getUserMedia({
-        'audio': {
-          'echoCancellation': true,
-          'noiseSuppression': true,
-          'autoGainControl': true,
-        },
-      });
-      _localTrack = _localStream!.getAudioTracks().first;
-      _pc!.addTrack(_localTrack!, _localStream!);
-    }
+    _localStream = await navigator.mediaDevices.getUserMedia({
+      'audio': {
+        'echoCancellation': true,
+        'noiseSuppression': true,
+        'autoGainControl': true,
+      },
+    });
+    _localTrack = _localStream!.getAudioTracks().first;
+    _pc!.addTrack(_localTrack!, _localStream!);
 
     // Create completer BEFORE data channel to avoid race with session.created
     _sessionReady = Completer<void>();
@@ -271,11 +262,6 @@ class RealtimeService {
             _pendingTextInput = null;
           }
           turns[respId] = turn;
-          final pendingCompleter = _pendingTextCompleter;
-          if (pendingCompleter != null) {
-            _textResponseCompleters[respId] = pendingCompleter;
-            _pendingTextCompleter = null;
-          }
           if (userItem != null) {
             _itemToResponse[userItem] = respId;
           }
@@ -359,10 +345,6 @@ class RealtimeService {
           }
 
           currentResponseId = null;
-          final textCompleter = _textResponseCompleters.remove(rid);
-          if (textCompleter != null && !textCompleter.isCompleted) {
-            textCompleter.complete(turnOutput);
-          }
         }
         if (status != null && status != 'completed') {
           _safeUnmute();
@@ -376,7 +358,6 @@ class RealtimeService {
         if (errMsg.toString().contains('no active response')) {
           return;
         }
-        _completeTextRequestsWithError(Exception(errMsg.toString()));
         _safeUnmute();
         break;
     }
@@ -557,42 +538,6 @@ class RealtimeService {
     _dc!.send(RTCDataChannelMessage(jsonEncode({'type': 'response.create'})));
   }
 
-  Future<String> sendTextForResult(
-    String text, {
-    Duration timeout = const Duration(seconds: 12),
-  }) {
-    final task = _textResultChain.then((_) {
-      return _sendTextForResultNow(text, timeout: timeout);
-    });
-    _textResultChain = task.then<void>((_) {}, onError: (_) {});
-    return task;
-  }
-
-  Future<String> _sendTextForResultNow(
-    String text, {
-    required Duration timeout,
-  }) async {
-    if (_dc?.state != RTCDataChannelState.RTCDataChannelOpen) {
-      throw Exception('Realtime data channel is not open');
-    }
-    final completer = Completer<String>();
-    _pendingTextCompleter = completer;
-    sendText(text);
-    return completer.future.timeout(timeout);
-  }
-
-  void _completeTextRequestsWithError(Object error) {
-    final pending = _pendingTextCompleter;
-    _pendingTextCompleter = null;
-    if (pending != null && !pending.isCompleted) {
-      pending.completeError(error);
-    }
-    for (final completer in _textResponseCompleters.values) {
-      if (!completer.isCompleted) completer.completeError(error);
-    }
-    _textResponseCompleters.clear();
-  }
-
   Future<void> stop() async {
     _active = false;
     _aiHold = false;
@@ -601,7 +546,6 @@ class RealtimeService {
     _safeUnmuteTimer?.cancel();
     _dc?.close();
     _dc = null;
-    _completeTextRequestsWithError(Exception('Realtime service stopped'));
     _localStream?.getTracks().forEach((t) => t.stop());
     _localStream?.dispose();
     _localStream = null;
