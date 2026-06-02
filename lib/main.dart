@@ -6,6 +6,13 @@ import 'screens/translator_screen.dart';
 
 const _builtInKey = String.fromEnvironment('OPENAI_API_KEY', defaultValue: '');
 const _storage = FlutterSecureStorage();
+Future<SharedPreferences>? _prefsFuture;
+
+Future<SharedPreferences> _prefs() {
+  final current = _prefsFuture;
+  if (current != null) return current;
+  return _prefsFuture = SharedPreferences.getInstance();
+}
 
 Future<String?> _loadApiKey() async {
   if (_builtInKey.isNotEmpty) return _builtInKey;
@@ -17,7 +24,7 @@ Future<String?> _loadApiKey() async {
   }
 
   // Fallback to SharedPreferences (web)
-  final prefs = await SharedPreferences.getInstance();
+  final prefs = await _prefs();
   final saved = prefs.getString('openai_api_key') ?? '';
   return saved.isNotEmpty ? saved : null;
 }
@@ -25,7 +32,7 @@ Future<String?> _loadApiKey() async {
 Future<void> saveApiKey(String key) async {
   if (kIsWeb) {
     // Web: no secure storage, use SharedPreferences
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await _prefs();
     await prefs.setString('openai_api_key', key);
   } else {
     // Android/iOS: secure storage only, no SharedPreferences
@@ -35,7 +42,7 @@ Future<void> saveApiKey(String key) async {
 
 Future<void> clearApiKey() async {
   if (kIsWeb) {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await _prefs();
     await prefs.remove('openai_api_key');
   } else {
     await _storage.delete(key: 'openai_api_key');
@@ -105,13 +112,18 @@ class _ApiKeyScreenState extends State<ApiKeyScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Text('KO ⇄ JA', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
+              const Text(
+                'KO ⇄ JA',
+                style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
+              ),
               const SizedBox(height: 24),
               TextField(
                 controller: _controller,
                 decoration: InputDecoration(
                   hintText: 'OpenAI API Key',
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
                 obscureText: true,
               ),

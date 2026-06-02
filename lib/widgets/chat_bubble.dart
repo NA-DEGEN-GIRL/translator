@@ -12,47 +12,237 @@ class ChatMessage {
   final String direction; // e.g. 'ko2ja', 'en2ko', 'ai'
   final bool isAI; // AI assistant response
   final String? turnId; // response_id for Realtime turn mapping
+  final String fromLang;
+  final String toLang;
+  final String directionLabel;
+  final String neutralDirectionLabel;
+  final double directionLabelWidthUnits;
+  final double contentWidthUnits;
+  late final Map<String, String> translationContextEntry =
+      Map<String, String>.unmodifiable({
+        'role': 'user',
+        'content': '$original → $translated',
+      });
+  late final String assistantContextText = isAI
+      ? 'Q: $original\nA: $translated'
+      : '$direction: $original → $translated';
 
-  ChatMessage({
+  factory ChatMessage({
+    required String original,
+    required String translated,
+    String? backTranslation,
+    String? pronunciation,
+    required String direction,
+    bool isAI = false,
+    String? turnId,
+  }) {
+    final parts = _directionParts(direction);
+    final directionLabel = _directionLabelFromParts(parts.from, parts.to, '→');
+    return ChatMessage._(
+      original: original,
+      translated: translated,
+      backTranslation: backTranslation,
+      pronunciation: pronunciation,
+      direction: direction,
+      isAI: isAI,
+      turnId: turnId,
+      fromLang: parts.from,
+      toLang: parts.to,
+      directionLabel: directionLabel,
+      neutralDirectionLabel: _directionLabelFromParts(
+        parts.from,
+        parts.to,
+        '⇄',
+      ),
+      directionLabelWidthUnits: _textUnits(directionLabel),
+      contentWidthUnits: _maxContentUnits(
+        original: original,
+        translated: translated,
+        backTranslation: backTranslation,
+        pronunciation: pronunciation,
+      ),
+    );
+  }
+
+  ChatMessage._({
     required this.original,
     required this.translated,
     this.backTranslation,
     this.pronunciation,
     required this.direction,
-    this.isAI = false,
+    required this.isAI,
     this.turnId,
+    required this.fromLang,
+    required this.toLang,
+    required this.directionLabel,
+    required this.neutralDirectionLabel,
+    required this.directionLabelWidthUnits,
+    required this.contentWidthUnits,
   });
+
+  static ({String from, String to}) _directionParts(String direction) {
+    final separatorIndex = direction.indexOf('2');
+    final from = separatorIndex > 0
+        ? direction.substring(0, separatorIndex)
+        : '';
+    final to = separatorIndex >= 0 && separatorIndex < direction.length - 1
+        ? direction.substring(separatorIndex + 1)
+        : '';
+    return (from: from, to: to);
+  }
+
+  static String _directionLabelFromParts(
+    String from,
+    String to,
+    String separator,
+  ) {
+    return '${from.toUpperCase()}$separator${to.toUpperCase()}';
+  }
+
+  static double _maxContentUnits({
+    required String original,
+    required String translated,
+    String? backTranslation,
+    String? pronunciation,
+  }) {
+    var maxUnits = _textUnits(translated);
+    if (original != translated) {
+      final units = _textUnits(original);
+      if (units > maxUnits) maxUnits = units;
+    }
+    if (backTranslation != null) {
+      final units = _textUnits(backTranslation);
+      if (units > maxUnits) maxUnits = units;
+    }
+    if (pronunciation != null) {
+      final units = _textUnits(pronunciation);
+      if (units > maxUnits) maxUnits = units;
+    }
+    return maxUnits;
+  }
+
+  static double _textUnits(String text) {
+    var longestLine = 0.0;
+    var currentLine = 0.0;
+    var currentWord = 0.0;
+    var longestWord = 0.0;
+    for (final rune in text.runes) {
+      if (rune == 0x0A || rune == 0x0D) {
+        if (currentLine > longestLine) longestLine = currentLine;
+        if (currentWord > longestWord) longestWord = currentWord;
+        currentLine = 0;
+        currentWord = 0;
+        continue;
+      }
+      final unit = rune <= 0x20
+          ? 0.35
+          : rune < 0x2E80
+          ? 0.56
+          : 1.0;
+      currentLine += unit;
+      if (rune <= 0x20) {
+        if (currentWord > longestWord) longestWord = currentWord;
+        currentWord = 0;
+      } else {
+        currentWord += unit;
+      }
+    }
+    if (currentLine > longestLine) longestLine = currentLine;
+    if (currentWord > longestWord) longestWord = currentWord;
+    return longestLine > longestWord ? longestLine : longestWord;
+  }
 }
 
 class ChatBubble extends StatelessWidget {
   final ChatMessage message;
-  final VoidCallback? onReplay;
+  final ValueChanged<ChatMessage>? onReplay;
+  final ValueChanged<ChatMessage>? onRetry;
   final double fontSize;
   final double secondaryFontSize;
   final String sourceLang;
   final String selfLang;
   final String readerLang;
   final bool useRoleLabels;
+  final double maxBubbleWidth;
+  final double aiQuestionMaxWidth;
+  final double aiAnswerMaxWidth;
 
   const ChatBubble({
     super.key,
     required this.message,
     this.onReplay,
+    this.onRetry,
     this.fontSize = 16,
     this.secondaryFontSize = 11,
     this.sourceLang = 'ko',
     this.selfLang = 'ko',
     this.readerLang = 'ko',
     this.useRoleLabels = false,
+    required this.maxBubbleWidth,
+    required this.aiQuestionMaxWidth,
+    required this.aiAnswerMaxWidth,
   });
 
   static const _latinLangs = {'en', 'de', 'fr', 'vi'};
+  static final Map<String, String> _roleLabelCache = {};
+  static final Map<String, double> _roleLabelUnitsCache = {};
+  static final Map<int, MarkdownStyleSheet> _aiMarkdownStyleCache = {};
 
-  bool get _isLatinPair {
-    final parts = message.direction.split('2');
-    final from = parts.isNotEmpty ? parts[0] : '';
-    final to = parts.length > 1 ? parts[1] : '';
-    return _latinLangs.contains(from) && _latinLangs.contains(to);
+  static String _roleLabel({
+    required bool isSelf,
+    required String readerLangCode,
+  }) {
+    final key = '${readerLangCode}_${isSelf ? 'self' : 'other'}';
+    return _roleLabelCache.putIfAbsent(
+      key,
+      () =>
+          personLabelForReader(isSelf: isSelf, readerLangCode: readerLangCode),
+    );
+  }
+
+  static double _roleLabelUnits({
+    required bool isSelf,
+    required String readerLangCode,
+  }) {
+    final key = '${readerLangCode}_${isSelf ? 'self' : 'other'}';
+    return _roleLabelUnitsCache.putIfAbsent(
+      key,
+      () => ChatMessage._textUnits(
+        _roleLabel(isSelf: isSelf, readerLangCode: readerLangCode),
+      ),
+    );
+  }
+
+  static MarkdownStyleSheet _aiMarkdownStyle(double fontSize) {
+    final key = (fontSize * 100).round();
+    final cached = _aiMarkdownStyleCache[key];
+    if (cached != null) return cached;
+    if (_aiMarkdownStyleCache.length > 12) _aiMarkdownStyleCache.clear();
+
+    final bodyFontSize = key / 100 * 0.85;
+    final style = MarkdownStyleSheet(
+      p: TextStyle(
+        fontSize: bodyFontSize,
+        color: const Color(0xFF1A202C),
+        height: 1.4,
+      ),
+      strong: TextStyle(
+        fontSize: bodyFontSize,
+        fontWeight: FontWeight.bold,
+        color: const Color(0xFF1A202C),
+      ),
+      listBullet: TextStyle(
+        fontSize: bodyFontSize,
+        color: const Color(0xFF1A202C),
+      ),
+      code: TextStyle(
+        fontSize: key / 100 * 0.75,
+        backgroundColor: const Color(0xFFEEEEEE),
+      ),
+      blockSpacing: 8,
+    );
+    _aiMarkdownStyleCache[key] = style;
+    return style;
   }
 
   Future<void> _copyTranslation(BuildContext context) async {
@@ -87,74 +277,91 @@ class ChatBubble extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (message.isAI) return _buildAIBubble(context);
-    if (_isLatinPair && !useRoleLabels) return _buildNeutralBubble(context);
 
-    final parts = message.direction.split('2');
-    final fromLang = parts.isNotEmpty ? parts[0] : '';
-    final toLang = parts.length > 1 ? parts[1] : '';
+    final fromLang = message.fromLang;
+    final toLang = message.toLang;
+    final isLatinPair =
+        _latinLangs.contains(fromLang) && _latinLangs.contains(toLang);
+    if (isLatinPair && !useRoleLabels) {
+      return _buildNeutralBubble(context);
+    }
 
     final isFromSource = fromLang == sourceLang;
     final isSelfSpeaker = fromLang == selfLang;
     final label = useRoleLabels
-        ? personLabelForReader(
-            isSelf: isSelfSpeaker,
-            readerLangCode: readerLang,
-          )
-        : '${fromLang.toUpperCase()}→${toLang.toUpperCase()}';
-    final accentColor = isFromSource
-        ? const Color(0xFF4A90D9)
-        : const Color(0xFFE85D75);
-    final cardColor = isFromSource
-        ? const Color(0xFFEBF4FF)
-        : const Color(0xFFFFF0F3);
+        ? _roleLabel(isSelf: isSelfSpeaker, readerLangCode: readerLang)
+        : message.directionLabel;
+    final labelUnits = useRoleLabels
+        ? _roleLabelUnits(isSelf: isSelfSpeaker, readerLangCode: readerLang)
+        : message.directionLabelWidthUnits;
+    final palette = isFromSource
+        ? _BubblePalette.source
+        : _BubblePalette.target;
+    final bubbleWidth = _estimateBubbleWidth(labelUnits);
 
     return Align(
       alignment: isSelfSpeaker ? Alignment.centerRight : Alignment.centerLeft,
-      child: IntrinsicWidth(
-        child: Container(
-          margin: const EdgeInsets.only(bottom: 10),
-          constraints: BoxConstraints(
-            maxWidth: MediaQuery.of(context).size.width * 0.8,
-            minWidth: 100,
+      child: Container(
+        width: bubbleWidth,
+        margin: const EdgeInsets.only(bottom: 10),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.only(
+            topLeft: Radius.circular(isSelfSpeaker ? 12 : 2),
+            topRight: Radius.circular(isSelfSpeaker ? 2 : 12),
+            bottomLeft: const Radius.circular(12),
+            bottomRight: const Radius.circular(12),
           ),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.only(
-              topLeft: Radius.circular(isSelfSpeaker ? 12 : 2),
-              topRight: Radius.circular(isSelfSpeaker ? 2 : 12),
-              bottomLeft: const Radius.circular(12),
-              bottomRight: const Radius.circular(12),
+          border: Border.all(color: palette.border, width: 1),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _buildHeader(
+              label: label,
+              palette: palette,
+              alignEnd: isSelfSpeaker,
             ),
-            border: Border.all(color: accentColor.withOpacity(0.2), width: 1),
-          ),
-          clipBehavior: Clip.antiAlias,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _buildHeader(
-                label: label,
-                accentColor: accentColor,
-                alignEnd: isSelfSpeaker,
-              ),
-              _buildCopyableTranslation(
-                context: context,
-                cardColor: cardColor,
-                alignEnd: isSelfSpeaker,
-              ),
-            ],
-          ),
+            _buildCopyableTranslation(
+              context: context,
+              cardColor: palette.card,
+              alignEnd: isSelfSpeaker,
+            ),
+          ],
         ),
       ),
     );
   }
 
+  double _estimateBubbleWidth(double labelContentUnits) {
+    var labelUnits = labelContentUnits + (onReplay == null ? 3 : 5);
+    if (onRetry != null) {
+      labelUnits +=
+          ChatMessage._textUnits(retryLabelForReader(_retryLabelLang)) + 4;
+    }
+    final maxUnits = labelUnits > message.contentWidthUnits
+        ? labelUnits
+        : message.contentWidthUnits;
+    final estimated = maxUnits * fontSize + 28;
+    return estimated.clamp(100.0, maxBubbleWidth).toDouble();
+  }
+
+  String get _retryLabelLang =>
+      message.fromLang.isEmpty ? readerLang : message.fromLang;
+
   Widget _buildHeader({
     required String label,
-    required Color accentColor,
+    required _BubblePalette palette,
     required bool alignEnd,
   }) {
+    final replay = onReplay;
+    final retry = onRetry;
+    final retryLabel = retry == null
+        ? ''
+        : retryLabelForReader(_retryLabelLang);
     return Container(
       padding: const EdgeInsets.fromLTRB(10, 6, 10, 6),
-      color: accentColor.withOpacity(0.1),
+      color: palette.header,
       child: Column(
         crossAxisAlignment: alignEnd
             ? CrossAxisAlignment.end
@@ -170,30 +377,66 @@ class ChatBubble extends StatelessWidget {
                       .clamp(8.0, 12.0)
                       .toDouble(),
                   fontWeight: FontWeight.w700,
-                  color: accentColor.withOpacity(0.6),
+                  color: palette.label,
                   letterSpacing: 0.8,
                 ),
               ),
-              if (onReplay != null) ...[
+              if (replay != null) ...[
                 const SizedBox(width: 6),
                 GestureDetector(
-                  onTap: onReplay,
-                  child: Icon(
-                    Icons.volume_up,
-                    size: 13,
-                    color: accentColor.withOpacity(0.5),
+                  onTap: () => replay(message),
+                  child: Icon(Icons.volume_up, size: 13, color: palette.replay),
+                ),
+              ],
+              if (retry != null) ...[
+                const SizedBox(width: 6),
+                GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => retry(message),
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: palette.replay.withValues(alpha: 0.14),
+                      border: Border.all(
+                        color: palette.replay.withValues(alpha: 0.55),
+                      ),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 5,
+                        vertical: 2,
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.refresh, size: 12, color: palette.replay),
+                          const SizedBox(width: 3),
+                          Text(
+                            retryLabel,
+                            style: TextStyle(
+                              fontSize: (secondaryFontSize * 0.75)
+                                  .clamp(8.0, 12.0)
+                                  .toDouble(),
+                              fontWeight: FontWeight.w800,
+                              color: palette.replay,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
                 ),
               ],
             ],
           ),
-          if (message.original != message.translated) ...[
+          if (message.original.trim().isNotEmpty &&
+              message.original != message.translated) ...[
             const SizedBox(height: 2),
             SelectableText(
               message.original,
               style: TextStyle(
                 fontSize: secondaryFontSize,
-                color: accentColor.withOpacity(0.65),
+                color: palette.original,
               ),
               textAlign: alignEnd ? TextAlign.right : TextAlign.left,
             ),
@@ -262,27 +505,23 @@ class ChatBubble extends StatelessWidget {
   }
 
   Widget _buildNeutralBubble(BuildContext context) {
-    final parts = message.direction.split('2');
-    final fromLang = parts.isNotEmpty ? parts[0] : '';
-    final toLang = parts.length > 1 ? parts[1] : '';
-    final label = '${fromLang.toUpperCase()}⇄${toLang.toUpperCase()}';
-    const accentColor = Color(0xFF718096);
-    const cardColor = Color(0xFFF7F8FA);
+    final label = message.neutralDirectionLabel;
+    const palette = _BubblePalette.neutral;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: accentColor.withOpacity(0.2), width: 1),
+        border: Border.all(color: palette.border, width: 1),
       ),
       clipBehavior: Clip.antiAlias,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _buildHeader(label: label, accentColor: accentColor, alignEnd: false),
+          _buildHeader(label: label, palette: palette, alignEnd: false),
           _buildCopyableTranslation(
             context: context,
-            cardColor: cardColor,
+            cardColor: palette.card,
             alignEnd: false,
           ),
         ],
@@ -299,9 +538,7 @@ class ChatBubble extends StatelessWidget {
           Align(
             alignment: Alignment.centerRight,
             child: Container(
-              constraints: BoxConstraints(
-                maxWidth: MediaQuery.of(context).size.width * 0.7,
-              ),
+              constraints: BoxConstraints(maxWidth: aiQuestionMaxWidth),
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
               decoration: BoxDecoration(
                 color: Colors.grey.shade200,
@@ -328,14 +565,12 @@ class ChatBubble extends StatelessWidget {
                 onTap: () => _copyTranslation(context),
                 onLongPress: () => _copyTranslation(context),
                 child: Container(
-                  constraints: BoxConstraints(
-                    maxWidth: MediaQuery.of(context).size.width * 0.85,
-                  ),
+                  constraints: BoxConstraints(maxWidth: aiAnswerMaxWidth),
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(
-                      color: const Color(0xFF8B5CF6).withOpacity(0.3),
+                      color: const Color(0xFF8B5CF6).withValues(alpha: 0.3),
                     ),
                   ),
                   child: Column(
@@ -363,27 +598,7 @@ class ChatBubble extends StatelessWidget {
                       MarkdownBody(
                         data: message.translated,
                         selectable: true,
-                        styleSheet: MarkdownStyleSheet(
-                          p: TextStyle(
-                            fontSize: fontSize * 0.85,
-                            color: const Color(0xFF1A202C),
-                            height: 1.4,
-                          ),
-                          strong: TextStyle(
-                            fontSize: fontSize * 0.85,
-                            fontWeight: FontWeight.bold,
-                            color: const Color(0xFF1A202C),
-                          ),
-                          listBullet: TextStyle(
-                            fontSize: fontSize * 0.85,
-                            color: const Color(0xFF1A202C),
-                          ),
-                          code: TextStyle(
-                            fontSize: fontSize * 0.75,
-                            backgroundColor: Colors.grey.shade200,
-                          ),
-                          blockSpacing: 8,
-                        ),
+                        styleSheet: _aiMarkdownStyle(fontSize),
                       ),
                     ],
                   ),
@@ -395,4 +610,49 @@ class ChatBubble extends StatelessWidget {
       ),
     );
   }
+}
+
+class _BubblePalette {
+  final Color card;
+  final Color border;
+  final Color header;
+  final Color label;
+  final Color replay;
+  final Color original;
+
+  const _BubblePalette({
+    required this.card,
+    required this.border,
+    required this.header,
+    required this.label,
+    required this.replay,
+    required this.original,
+  });
+
+  static const source = _BubblePalette(
+    card: Color(0xFFEBF4FF),
+    border: Color(0x334A90D9),
+    header: Color(0x1A4A90D9),
+    label: Color(0x994A90D9),
+    replay: Color(0x804A90D9),
+    original: Color(0xA64A90D9),
+  );
+
+  static const target = _BubblePalette(
+    card: Color(0xFFFFF0F3),
+    border: Color(0x33E85D75),
+    header: Color(0x1AE85D75),
+    label: Color(0x99E85D75),
+    replay: Color(0x80E85D75),
+    original: Color(0xA6E85D75),
+  );
+
+  static const neutral = _BubblePalette(
+    card: Color(0xFFF7F8FA),
+    border: Color(0x33718096),
+    header: Color(0x1A718096),
+    label: Color(0x99718096),
+    replay: Color(0x80718096),
+    original: Color(0xA6718096),
+  );
 }

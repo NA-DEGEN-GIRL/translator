@@ -67,6 +67,9 @@ final class AppPrompts {
   static const realtimeTranslationKey = 'prompt.realtimeTranslation';
   static const postProcessKey = 'prompt.postProcess';
   static const realtimeDirectionalKey = 'prompt.realtimeDirectional';
+  static final Map<String, String> _fewShotTextCache = {};
+  static final Map<String, List<Map<String, String>>> _fewShotExamplesCache =
+      {};
 
   static const String defaultTranslationSystem = '''
 You are a professional translator for {{SOURCE_LANG}} and {{TARGET_LANG}}.
@@ -166,13 +169,19 @@ Rules:
 
   static String _buildFewShotText(String? srcCode, String? tgtCode) {
     if (srcCode == null || tgtCode == null) return '';
+    final key = '$srcCode\x1f$tgtCode';
+    final cached = _fewShotTextCache[key];
+    if (cached != null) return cached;
+
     final examples = realtimeFewShotExamples(srcCode, tgtCode);
     if (examples.isEmpty) return '';
     final buf = StringBuffer('Examples (translate, never answer):\n');
     for (final ex in examples) {
       buf.writeln('Input: "${ex['user']}" → Output: "${ex['assistant']}"');
     }
-    return buf.toString();
+    final text = buf.toString();
+    _fewShotTextCache[key] = text;
+    return text;
   }
 
   static String _render(
@@ -184,34 +193,53 @@ Rules:
     ToneMode tone = ToneMode.normal,
     bool hasContext = false,
   }) {
+    final fewShot = template.contains('{{FEW_SHOT}}')
+        ? _buildFewShotText(sourceLangCode, targetLangCode)
+        : '';
     return template
         .replaceAll('{{SOURCE_LANG}}', sourceLang ?? '')
         .replaceAll('{{TARGET_LANG}}', targetLang ?? '')
-        .replaceAll('{{FEW_SHOT}}', _buildFewShotText(sourceLangCode, targetLangCode))
+        .replaceAll('{{FEW_SHOT}}', fewShot)
         .replaceAll('{{TONE_INSTRUCTION}}', _toneInstruction(tone))
         .replaceAll('{{CONTEXT_INSTRUCTION}}', _contextInstruction(hasContext));
   }
 
-  static Future<PromptTemplateSet> loadTemplates() async {
-    final prefs = await SharedPreferences.getInstance();
+  static Future<PromptTemplateSet> loadTemplates({
+    SharedPreferences? prefs,
+  }) async {
+    final store = prefs ?? await SharedPreferences.getInstance();
     return PromptTemplateSet(
-      translationSystem: prefs.getString(translationSystemKey) ?? defaults.translationSystem,
-      assistantSystem: prefs.getString(assistantSystemKey) ?? defaults.assistantSystem,
-      ttsInstructions: prefs.getString(ttsInstructionsKey) ?? defaults.ttsInstructions,
-      realtimeTranslation: prefs.getString(realtimeTranslationKey) ?? defaults.realtimeTranslation,
-      realtimeDirectional: prefs.getString(realtimeDirectionalKey) ?? defaults.realtimeDirectional,
-      postProcess: prefs.getString(postProcessKey) ?? defaults.postProcess,
+      translationSystem:
+          store.getString(translationSystemKey) ?? defaults.translationSystem,
+      assistantSystem:
+          store.getString(assistantSystemKey) ?? defaults.assistantSystem,
+      ttsInstructions:
+          store.getString(ttsInstructionsKey) ?? defaults.ttsInstructions,
+      realtimeTranslation:
+          store.getString(realtimeTranslationKey) ??
+          defaults.realtimeTranslation,
+      realtimeDirectional:
+          store.getString(realtimeDirectionalKey) ??
+          defaults.realtimeDirectional,
+      postProcess: store.getString(postProcessKey) ?? defaults.postProcess,
     );
   }
 
-  static Future<void> saveTemplate(String key, String value) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(key, value);
+  static Future<void> saveTemplate(
+    String key,
+    String value, {
+    SharedPreferences? prefs,
+  }) async {
+    final store = prefs ?? await SharedPreferences.getInstance();
+    await store.setString(key, value);
   }
 
-  static Future<void> resetTemplate(String key) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(key);
+  static Future<void> resetTemplate(
+    String key, {
+    SharedPreferences? prefs,
+  }) async {
+    final store = prefs ?? await SharedPreferences.getInstance();
+    await store.remove(key);
   }
 
   // ──────────────────────────────────────────
@@ -235,20 +263,16 @@ Rules:
   // ──────────────────────────────────────────
 
   /// 번역 앱 안의 보조 AI. 대화 맥락 참조, 사용자 언어로 답변.
-  static String assistantSystem({
-    bool hasContext = false,
-    String? template,
-  }) => _render(
-    template ?? defaults.assistantSystem,
-    hasContext: hasContext,
-  );
+  static String assistantSystem({bool hasContext = false, String? template}) =>
+      _render(template ?? defaults.assistantSystem, hasContext: hasContext);
 
   // ──────────────────────────────────────────
   // TTS
   // ──────────────────────────────────────────
 
   /// TTS 음성 스타일.
-  static String ttsInstructions({String? template}) => template ?? defaults.ttsInstructions;
+  static String ttsInstructions({String? template}) =>
+      template ?? defaults.ttsInstructions;
 
   // ──────────────────────────────────────────
   // Realtime (WebRTC speech-to-speech)
@@ -290,14 +314,12 @@ Rules:
   // Post-process (back-translate + pronunciation)
   // ──────────────────────────────────────────
 
-  static String postProcess(
-    PromptLanguagePair pair, {
-    String? template,
-  }) => _render(
-    template ?? defaults.postProcess,
-    sourceLang: pair.sourceLang,
-    targetLang: pair.targetLang,
-  );
+  static String postProcess(PromptLanguagePair pair, {String? template}) =>
+      _render(
+        template ?? defaults.postProcess,
+        sourceLang: pair.sourceLang,
+        targetLang: pair.targetLang,
+      );
 
   // ──────────────────────────────────────────
   // Realtime few-shot examples
@@ -309,21 +331,59 @@ Rules:
     'ko': ['오늘 날씨가 좋네요', '만나서 반갑습니다', '내일 시간 있어요'],
     'ja': ['今日はいい天気ですね', 'お会いできてうれしいです', '明日、時間がありますか'],
     'zh': ['今天天气真好', '很高兴认识你', '明天有时间吗'],
-    'en': ['The weather is nice today', 'Nice to meet you', 'Are you free tomorrow'],
-    'de': ['Das Wetter ist heute schön', 'Freut mich, Sie kennenzulernen', 'Haben Sie morgen Zeit'],
-    'fr': ['Il fait beau aujourd\'hui', 'Enchanté de vous rencontrer', 'Êtes-vous libre demain'],
-    'vi': ['Hôm nay thời tiết đẹp quá', 'Rất vui được gặp bạn', 'Ngày mai bạn có rảnh không'],
-    'ru': ['Сегодня хорошая погода', 'Приятно познакомиться', 'Вы свободны завтра'],
+    'en': [
+      'The weather is nice today',
+      'Nice to meet you',
+      'Are you free tomorrow',
+    ],
+    'de': [
+      'Das Wetter ist heute schön',
+      'Freut mich, Sie kennenzulernen',
+      'Haben Sie morgen Zeit',
+    ],
+    'fr': [
+      'Il fait beau aujourd\'hui',
+      'Enchanté de vous rencontrer',
+      'Êtes-vous libre demain',
+    ],
+    'vi': [
+      'Hôm nay thời tiết đẹp quá',
+      'Rất vui được gặp bạn',
+      'Ngày mai bạn có rảnh không',
+    ],
+    'ru': [
+      'Сегодня хорошая погода',
+      'Приятно познакомиться',
+      'Вы свободны завтра',
+    ],
   };
 
   /// Few-shot: 3 contrastive examples (src→tgt, tgt→src, repeated tgt→src)
-  static List<Map<String, String>> realtimeFewShotExamples(String srcCode, String tgtCode) {
+  static List<Map<String, String>> realtimeFewShotExamples(
+    String srcCode,
+    String tgtCode,
+  ) {
+    final key = '$srcCode\x1f$tgtCode';
+    final cached = _fewShotExamplesCache[key];
+    if (cached != null) return cached;
+
     final src = _langExamples[srcCode] ?? _langExamples['en']!;
     final tgt = _langExamples[tgtCode] ?? _langExamples['en']!;
-    return [
-      {'user': src[0], 'assistant': tgt[0]}, // src→tgt
-      {'user': tgt[1], 'assistant': src[1]}, // tgt→src
-      {'user': tgt[1], 'assistant': src[1]}, // SAME tgt repeated → still tgt→src
-    ];
+    final examples = List<Map<String, String>>.unmodifiable([
+      Map<String, String>.unmodifiable({
+        'user': src[0],
+        'assistant': tgt[0],
+      }), // src→tgt
+      Map<String, String>.unmodifiable({
+        'user': tgt[1],
+        'assistant': src[1],
+      }), // tgt→src
+      Map<String, String>.unmodifiable({
+        'user': tgt[1],
+        'assistant': src[1],
+      }), // SAME tgt repeated → still tgt→src
+    ]);
+    _fewShotExamplesCache[key] = examples;
+    return examples;
   }
 }

@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart'
+    show defaultTargetPlatform, kIsWeb, TargetPlatform;
 import 'package:flutter/material.dart';
 import '../models/language.dart';
 import '../prompts.dart';
@@ -19,6 +21,49 @@ class SettingsSheet extends StatefulWidget {
     'gpt-5.4-nano': '5.4-nano',
   };
 
+  static const _reasoningEffortOptions = {
+    '': '기본값 (미전송)',
+    'minimal': 'minimal',
+    'low': 'low (추천)',
+    'medium': 'medium',
+    'high': 'high',
+    'xhigh': 'xhigh',
+  };
+
+  static const _sttModels = {
+    'gpt-4o-transcribe': '4o transcribe (추천)',
+    'gpt-4o-mini-transcribe': '4o-mini transcribe',
+    'system-stt': '시스템 STT (실험)',
+    'gpt-realtime-whisper': 'Realtime Whisper',
+    'whisper-1': 'Whisper',
+  };
+
+  static const _realtimeSttDelayOptions = {
+    'minimal': 'minimal (최저지연)',
+    'low': 'low',
+    'medium': 'medium',
+    'high': 'high',
+    'xhigh': 'xhigh',
+  };
+
+  static const _ttsModels = {
+    'gpt-4o-mini-tts': '4o-mini TTS (추천)',
+    'tts-1': 'TTS-1 (저지연)',
+    'tts-1-hd': 'TTS-1 HD (고품질)',
+    'system-tts': '시스템 TTS (로컬/실험)',
+  };
+
+  static const _systemTtsEngines = {
+    'flutter': 'Flutter 플러그인',
+    'direct_web': '직접 JS Web Speech (웹/실험)',
+  };
+
+  static const _realtimeNoiseReductionOptions = {
+    'near_field': '근거리/이어폰 마이크 (추천)',
+    'far_field': '노트북/원거리 마이크',
+    'none': 'OFF',
+  };
+
   final String mode;
   final String model;
   final String realtimeModel;
@@ -27,15 +72,31 @@ class SettingsSheet extends StatefulWidget {
   final String displayMode; // 'face' or 'one'
   final bool ttsSourceEnabled;
   final bool ttsTargetEnabled;
+  final bool liveTranslateAudioEnabled;
+  final String liveTranslateAudioRoute;
+  final double liveTranslateAudioBoostGain;
+  final int liveTranslateAudioBoostMs;
+  final String liveTranslateInputNoiseReduction;
+  final double liveTranslateCaptionFontSize;
+  final String ttsModel;
+  final String ttsAudioRoute;
+  final String systemTtsEngine;
+  final bool systemTtsSilentPrimeEnabled;
   final String voiceSource;
   final String voiceTarget;
   final double fontSize;
   final double secondaryFontSize;
-  final double faceV2MicOpacity;
   final double ttsSpeed;
   final int pauseSeconds;
   final double noiseThreshold;
   final double vadThreshold;
+  final String turnDetectionType;
+  final String vadEagerness;
+  final int silenceDurationMs;
+  final int realtimeBackgroundGraceSeconds;
+  final bool pingPongTransportOptimized;
+  final int pingPongWsBackgroundGraceSeconds;
+  final String pingPongWebWsProxyUrl;
   final String toneMode;
   final bool realtimeActive;
   final String realtimeVoice;
@@ -53,15 +114,31 @@ class SettingsSheet extends StatefulWidget {
   final ValueChanged<String> onDisplayModeChanged;
   final ValueChanged<bool> onTtsSourceChanged;
   final ValueChanged<bool> onTtsTargetChanged;
+  final ValueChanged<bool> onLiveTranslateAudioEnabledChanged;
+  final ValueChanged<String> onLiveTranslateAudioRouteChanged;
+  final ValueChanged<double> onLiveTranslateAudioBoostGainChanged;
+  final ValueChanged<int> onLiveTranslateAudioBoostMsChanged;
+  final ValueChanged<String> onLiveTranslateInputNoiseReductionChanged;
+  final ValueChanged<double> onLiveTranslateCaptionFontSizeChanged;
+  final ValueChanged<String> onTtsModelChanged;
+  final ValueChanged<String> onTtsAudioRouteChanged;
+  final ValueChanged<String>? onSystemTtsEngineChanged;
+  final ValueChanged<bool>? onSystemTtsSilentPrimeEnabledChanged;
   final ValueChanged<String> onVoiceSourceChanged;
   final ValueChanged<String> onVoiceTargetChanged;
   final ValueChanged<double> onFontSizeChanged;
   final ValueChanged<double> onSecondaryFontSizeChanged;
-  final ValueChanged<double> onFaceV2MicOpacityChanged;
   final ValueChanged<double> onTtsSpeedChanged;
   final ValueChanged<int> onPauseSecondsChanged;
   final ValueChanged<double> onNoiseThresholdChanged;
   final ValueChanged<double> onVadThresholdChanged;
+  final ValueChanged<String> onTurnDetectionTypeChanged;
+  final ValueChanged<String> onVadEagernessChanged;
+  final ValueChanged<int> onSilenceDurationMsChanged;
+  final ValueChanged<int> onRealtimeBackgroundGraceSecondsChanged;
+  final ValueChanged<bool> onPingPongTransportOptimizedChanged;
+  final ValueChanged<int> onPingPongWsBackgroundGraceSecondsChanged;
+  final ValueChanged<String>? onPingPongWebWsProxyUrlChanged;
   final bool deleteConversationItems;
   final ValueChanged<bool> onDeleteConversationItemsChanged;
   final bool injectFewShot;
@@ -70,23 +147,44 @@ class SettingsSheet extends StatefulWidget {
   final ValueChanged<bool> onTranslationContextChanged;
   final double translationTemp;
   final ValueChanged<double> onTranslationTempChanged;
+  final String translationReasoningEffort;
+  final ValueChanged<String> onTranslationReasoningEffortChanged;
+  final bool translationBenchmarkEnabled;
+  final ValueChanged<bool> onTranslationBenchmarkEnabledChanged;
+  final String sttModel;
+  final ValueChanged<String> onSttModelChanged;
+  final bool sttBenchmarkEnabled;
+  final ValueChanged<bool> onSttBenchmarkEnabledChanged;
+  final bool androidSystemSttFastInterim;
+  final ValueChanged<bool> onAndroidSystemSttFastInterimChanged;
+  final String realtimeSttDelay;
+  final ValueChanged<String> onRealtimeSttDelayChanged;
+  final String sttPrompt;
+  final ValueChanged<String> onSttPromptChanged;
   final double classifyTemp;
   final ValueChanged<double> onClassifyTempChanged;
   final double pronunciationTemp;
   final ValueChanged<double> onPronunciationTempChanged;
+  final String postProcessBackTranslationModel;
+  final ValueChanged<String> onPostProcessBackTranslationModelChanged;
+  final String postProcessBackTranslationReasoningEffort;
+  final ValueChanged<String> onPostProcessBackTranslationReasoningEffortChanged;
+  final String postProcessPronunciationModel;
+  final ValueChanged<String> onPostProcessPronunciationModelChanged;
+  final String postProcessPronunciationReasoningEffort;
+  final ValueChanged<String> onPostProcessPronunciationReasoningEffortChanged;
   final String rtPostProcessMode;
   final ValueChanged<String> onRtPostProcessModeChanged;
-  final String detectModel;
   final bool backTranslateSource;
   final bool backTranslateTarget;
   final bool showPronunciation;
-  final ValueChanged<String> onDetectModelChanged;
   final ValueChanged<bool> onBackTranslateSourceChanged;
   final ValueChanged<bool> onBackTranslateTargetChanged;
   final ValueChanged<bool> onShowPronunciationChanged;
   final PromptTemplateSet promptTemplates;
   final Future<void> Function(String key, String value) onPromptChanged;
   final Future<void> Function(String key) onPromptReset;
+  final VoidCallback? onShowLogs;
   final VoidCallback onResetApiKey;
 
   const SettingsSheet({
@@ -99,15 +197,31 @@ class SettingsSheet extends StatefulWidget {
     required this.displayMode,
     required this.ttsSourceEnabled,
     required this.ttsTargetEnabled,
+    this.liveTranslateAudioEnabled = false,
+    this.liveTranslateAudioRoute = 'mono',
+    this.liveTranslateAudioBoostGain = 1.65,
+    this.liveTranslateAudioBoostMs = 1100,
+    this.liveTranslateInputNoiseReduction = 'near_field',
+    this.liveTranslateCaptionFontSize = 28,
+    this.ttsModel = 'gpt-4o-mini-tts',
+    this.ttsAudioRoute = 'mono',
+    this.systemTtsEngine = 'flutter',
+    this.systemTtsSilentPrimeEnabled = false,
     required this.voiceSource,
     required this.voiceTarget,
     required this.fontSize,
     this.secondaryFontSize = 11,
-    this.faceV2MicOpacity = 0.82,
     required this.ttsSpeed,
     required this.pauseSeconds,
     required this.noiseThreshold,
     required this.vadThreshold,
+    this.turnDetectionType = 'server_vad',
+    this.vadEagerness = 'low',
+    this.silenceDurationMs = 500,
+    this.realtimeBackgroundGraceSeconds = 300,
+    this.pingPongTransportOptimized = true,
+    this.pingPongWsBackgroundGraceSeconds = 300,
+    this.pingPongWebWsProxyUrl = '',
     required this.toneMode,
     this.realtimeActive = false,
     this.realtimeVoice = 'coral',
@@ -125,15 +239,31 @@ class SettingsSheet extends StatefulWidget {
     required this.onDisplayModeChanged,
     required this.onTtsSourceChanged,
     required this.onTtsTargetChanged,
+    required this.onLiveTranslateAudioEnabledChanged,
+    required this.onLiveTranslateAudioRouteChanged,
+    required this.onLiveTranslateAudioBoostGainChanged,
+    required this.onLiveTranslateAudioBoostMsChanged,
+    required this.onLiveTranslateInputNoiseReductionChanged,
+    required this.onLiveTranslateCaptionFontSizeChanged,
+    required this.onTtsModelChanged,
+    required this.onTtsAudioRouteChanged,
+    this.onSystemTtsEngineChanged,
+    this.onSystemTtsSilentPrimeEnabledChanged,
     required this.onVoiceSourceChanged,
     required this.onVoiceTargetChanged,
     required this.onFontSizeChanged,
     required this.onSecondaryFontSizeChanged,
-    required this.onFaceV2MicOpacityChanged,
     required this.onTtsSpeedChanged,
     required this.onPauseSecondsChanged,
     required this.onNoiseThresholdChanged,
     required this.onVadThresholdChanged,
+    required this.onTurnDetectionTypeChanged,
+    required this.onVadEagernessChanged,
+    required this.onSilenceDurationMsChanged,
+    required this.onRealtimeBackgroundGraceSecondsChanged,
+    required this.onPingPongTransportOptimizedChanged,
+    required this.onPingPongWsBackgroundGraceSecondsChanged,
+    this.onPingPongWebWsProxyUrlChanged,
     this.deleteConversationItems = true,
     required this.onDeleteConversationItemsChanged,
     this.injectFewShot = true,
@@ -142,23 +272,44 @@ class SettingsSheet extends StatefulWidget {
     required this.onTranslationContextChanged,
     this.translationTemp = 0.3,
     required this.onTranslationTempChanged,
+    this.translationReasoningEffort = 'low',
+    required this.onTranslationReasoningEffortChanged,
+    this.translationBenchmarkEnabled = false,
+    required this.onTranslationBenchmarkEnabledChanged,
+    this.sttModel = 'gpt-4o-transcribe',
+    required this.onSttModelChanged,
+    this.sttBenchmarkEnabled = false,
+    required this.onSttBenchmarkEnabledChanged,
+    this.androidSystemSttFastInterim = true,
+    required this.onAndroidSystemSttFastInterimChanged,
+    this.realtimeSttDelay = 'minimal',
+    required this.onRealtimeSttDelayChanged,
+    this.sttPrompt = '',
+    required this.onSttPromptChanged,
     this.classifyTemp = 0.1,
     required this.onClassifyTempChanged,
     this.pronunciationTemp = 0.3,
     required this.onPronunciationTempChanged,
+    this.postProcessBackTranslationModel = 'gpt-5.4-mini',
+    required this.onPostProcessBackTranslationModelChanged,
+    this.postProcessBackTranslationReasoningEffort = 'low',
+    required this.onPostProcessBackTranslationReasoningEffortChanged,
+    this.postProcessPronunciationModel = 'gpt-5.4-mini',
+    required this.onPostProcessPronunciationModelChanged,
+    this.postProcessPronunciationReasoningEffort = 'minimal',
+    required this.onPostProcessPronunciationReasoningEffortChanged,
     this.rtPostProcessMode = 'chat',
     required this.onRtPostProcessModeChanged,
-    this.detectModel = 'gpt-5.4-nano',
     this.backTranslateSource = true,
     this.backTranslateTarget = true,
     this.showPronunciation = false,
-    required this.onDetectModelChanged,
     required this.onBackTranslateSourceChanged,
     required this.onBackTranslateTargetChanged,
     required this.onShowPronunciationChanged,
     required this.promptTemplates,
     required this.onPromptChanged,
     required this.onPromptReset,
+    this.onShowLogs,
     required this.onResetApiKey,
   });
 
@@ -167,67 +318,64 @@ class SettingsSheet extends StatefulWidget {
 }
 
 class _SettingsSheetState extends State<SettingsSheet> {
-  bool get _isRt => widget.mode == 'realtime' || widget.mode == 'realtime_dir';
-  late final TextEditingController _translationPromptController;
-  late final TextEditingController _assistantPromptController;
-  late final TextEditingController _ttsPromptController;
-  late final TextEditingController _realtimePromptController;
-  late final TextEditingController _directionalPromptController;
-  late final TextEditingController _postProcessPromptController;
+  static const _silenceOptions = {
+    '1': '1s',
+    '2': '2s',
+    '3': '3s',
+    '5': '5s',
+    '7': '7s',
+    '30': 'OFF',
+  };
 
-  @override
-  void initState() {
-    super.initState();
-    _translationPromptController = TextEditingController(
-      text: widget.promptTemplates.translationSystem,
-    );
-    _assistantPromptController = TextEditingController(
-      text: widget.promptTemplates.assistantSystem,
-    );
-    _ttsPromptController = TextEditingController(
-      text: widget.promptTemplates.ttsInstructions,
-    );
-    _realtimePromptController = TextEditingController(
-      text: widget.promptTemplates.realtimeTranslation,
-    );
-    _directionalPromptController = TextEditingController(
-      text: widget.promptTemplates.realtimeDirectional,
-    );
-    _postProcessPromptController = TextEditingController(
-      text: widget.promptTemplates.postProcess,
-    );
-  }
+  static const _androidSystemSttSilenceOptions = {
+    '3': 'auto',
+    '31': '1초 대기',
+    '32': '2초 대기',
+    '33': '3초 대기',
+    '34': '4초 대기',
+    '35': '5초 대기',
+    '30': 'off(실험)',
+  };
+
+  bool get _isAndroidSystemStt =>
+      !kIsWeb &&
+      defaultTargetPlatform == TargetPlatform.android &&
+      widget.sttModel == 'system-stt';
+
+  bool get _isRealtimeTranslate => widget.mode == 'realtime_translate';
+  bool get _isLiveTranslate => _isRealtimeTranslate;
+  bool get _isRt => _isLiveTranslate;
+  bool get _supportsTranslationTemperature =>
+      _supportsCustomTemperature(widget.model);
+  bool get _supportsBackTranslationTemperature =>
+      _supportsCustomTemperature(widget.postProcessBackTranslationModel);
+  bool get _supportsPronunciationTemperature =>
+      _supportsCustomTemperature(widget.postProcessPronunciationModel);
+  bool _showPromptEditors = false;
+  TextEditingController? _translationPromptController;
+  TextEditingController? _assistantPromptController;
+  TextEditingController? _ttsPromptController;
 
   @override
   void didUpdateWidget(covariant SettingsSheet oldWidget) {
     super.didUpdateWidget(oldWidget);
-    _syncController(
+    if (identical(oldWidget.promptTemplates, widget.promptTemplates)) return;
+    _syncControllerIfReady(
       _translationPromptController,
       widget.promptTemplates.translationSystem,
     );
-    _syncController(
+    _syncControllerIfReady(
       _assistantPromptController,
       widget.promptTemplates.assistantSystem,
     );
-    _syncController(
+    _syncControllerIfReady(
       _ttsPromptController,
       widget.promptTemplates.ttsInstructions,
     );
-    _syncController(
-      _realtimePromptController,
-      widget.promptTemplates.realtimeTranslation,
-    );
-    _syncController(
-      _directionalPromptController,
-      widget.promptTemplates.realtimeDirectional,
-    );
-    _syncController(
-      _postProcessPromptController,
-      widget.promptTemplates.postProcess,
-    );
   }
 
-  void _syncController(TextEditingController controller, String value) {
+  void _syncControllerIfReady(TextEditingController? controller, String value) {
+    if (controller == null) return;
     if (controller.text == value) return;
     controller.value = TextEditingValue(
       text: value,
@@ -235,14 +383,48 @@ class _SettingsSheetState extends State<SettingsSheet> {
     );
   }
 
+  TextEditingController _controllerFor(
+    TextEditingController? current,
+    String value,
+    void Function(TextEditingController controller) store,
+  ) {
+    if (current != null) return current;
+    final controller = TextEditingController(text: value);
+    store(controller);
+    return controller;
+  }
+
+  TextEditingController get _translationController => _controllerFor(
+    _translationPromptController,
+    widget.promptTemplates.translationSystem,
+    (controller) => _translationPromptController = controller,
+  );
+
+  TextEditingController get _assistantController => _controllerFor(
+    _assistantPromptController,
+    widget.promptTemplates.assistantSystem,
+    (controller) => _assistantPromptController = controller,
+  );
+
+  TextEditingController get _ttsController => _controllerFor(
+    _ttsPromptController,
+    widget.promptTemplates.ttsInstructions,
+    (controller) => _ttsPromptController = controller,
+  );
+
+  bool _supportsCustomTemperature(String model) {
+    final id = model.toLowerCase();
+    return !id.startsWith('gpt-5') &&
+        !id.startsWith('o1') &&
+        !id.startsWith('o3') &&
+        !id.startsWith('o4');
+  }
+
   @override
   void dispose() {
-    _translationPromptController.dispose();
-    _assistantPromptController.dispose();
-    _ttsPromptController.dispose();
-    _realtimePromptController.dispose();
-    _directionalPromptController.dispose();
-    _postProcessPromptController.dispose();
+    _translationPromptController?.dispose();
+    _assistantPromptController?.dispose();
+    _ttsPromptController?.dispose();
     super.dispose();
   }
 
@@ -295,37 +477,40 @@ class _SettingsSheetState extends State<SettingsSheet> {
 
               // === 언어 ===
               _sectionTitle('언어'),
-              _langSelector(
-                '소스',
-                widget.sourceLang,
-                widget.onSourceLangChanged,
-              ),
-              const SizedBox(height: 8),
-              _langSelector(
-                '타겟',
-                widget.targetLang,
-                widget.onTargetLangChanged,
-              ),
-              // Swap button
-              Center(
-                child: IconButton(
-                  icon: const Icon(Icons.swap_vert, size: 20),
-                  onPressed: () {
-                    widget.onSourceLangChanged(widget.targetLang);
-                    widget.onTargetLangChanged(widget.sourceLang);
-                  },
+              if (_isRealtimeTranslate) ...[
+                _readonlyTile('통역 언어', '한국어 ↔ 日本語'),
+              ] else ...[
+                _langSelector(
+                  '소스',
+                  widget.sourceLang,
+                  widget.onSourceLangChanged,
                 ),
-              ),
+                const SizedBox(height: 8),
+                _langSelector(
+                  '타겟',
+                  widget.targetLang,
+                  widget.onTargetLangChanged,
+                ),
+                // Swap button
+                Center(
+                  child: IconButton(
+                    icon: const Icon(Icons.swap_vert, size: 20),
+                    onPressed: () {
+                      widget.onSourceLangChanged(widget.targetLang);
+                      widget.onTargetLangChanged(widget.sourceLang);
+                    },
+                  ),
+                ),
+              ],
 
               // === 화면 ===
               _sectionTitle('화면'),
               SegmentedButton<String>(
                 segments: const [
                   ButtonSegment(value: 'face', label: Text('대면')),
-                  ButtonSegment(value: 'face_v2', label: Text('대면 v2')),
                   ButtonSegment(value: 'one', label: Text('단방향')),
                 ],
-                selected: {widget.displayMode},
+                selected: {widget.displayMode == 'one' ? 'one' : 'face'},
                 onSelectionChanged: (v) => widget.onDisplayModeChanged(v.first),
                 style: SegmentedButton.styleFrom(
                   textStyle: const TextStyle(fontSize: 12),
@@ -334,7 +519,6 @@ class _SettingsSheetState extends State<SettingsSheet> {
               const SizedBox(height: 4),
               Text(switch (widget.displayMode) {
                 'face' => '상대방 화면이 180° 회전 (테이블에 놓고 대화)',
-                'face_v2' => '새 대면 UI 실험 화면 (기능은 기존 로직 사용)',
                 _ => '양쪽 화면이 같은 방향 (내가 둘 다 봄)',
               }, style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
               _sliderTile(
@@ -355,15 +539,17 @@ class _SettingsSheetState extends State<SettingsSheet> {
                 onChanged: widget.onSecondaryFontSizeChanged,
                 valueLabel: widget.secondaryFontSize.round().toString(),
               ),
-              if (widget.displayMode == 'face_v2')
+              if (_isLiveTranslate)
                 _sliderTile(
-                  '마이크 투명도',
-                  widget.faceV2MicOpacity,
-                  min: 0.45,
-                  max: 1.0,
-                  divisions: 11,
-                  onChanged: widget.onFaceV2MicOpacityChanged,
-                  valueLabel: '${(widget.faceV2MicOpacity * 100).round()}%',
+                  '청취 자막',
+                  widget.liveTranslateCaptionFontSize,
+                  min: 16,
+                  max: 42,
+                  divisions: 26,
+                  onChanged: widget.onLiveTranslateCaptionFontSizeChanged,
+                  valueLabel: widget.liveTranslateCaptionFontSize
+                      .round()
+                      .toString(),
                 ),
               const SizedBox(height: 12),
 
@@ -371,41 +557,80 @@ class _SettingsSheetState extends State<SettingsSheet> {
               _sectionTitle('모드 / 모델'),
               _dropdownTile('모드', widget.mode, {
                 'openai': 'Ping-Pong',
-                'realtime': 'Realtime',
-                'realtime_dir': 'Realtime (방향)',
+                'realtime_translate': '실시간 통역',
               }, widget.onModeChanged),
-              if (_isRt)
-                _dropdownTile('RT 모델', widget.realtimeModel, {
-                  'gpt-realtime-mini': 'mini',
-                  'gpt-realtime': 'standard',
-                  'gpt-realtime-1.5': '1.5',
-                  'gpt-realtime-2': '2.0',
-                }, widget.onRealtimeModelChanged)
-              else
+              if (_isRealtimeTranslate)
+                _readonlyTile('RT 모델', 'gpt-realtime-translate')
+              else ...[
                 _dropdownTile(
                   '번역 모델',
                   widget.model,
                   SettingsSheet._chatModels,
                   widget.onModelChanged,
                 ),
+                _dropdownTile(
+                  '번역 추론',
+                  widget.translationReasoningEffort,
+                  SettingsSheet._reasoningEffortOptions,
+                  widget.onTranslationReasoningEffortChanged,
+                ),
+                _switchTile(
+                  '번역 벤치마크',
+                  widget.translationBenchmarkEnabled,
+                  widget.onTranslationBenchmarkEnabledChanged,
+                ),
+              ],
               if (!_isRt) ...[
                 _switchTile(
                   '대화 맥락 주입',
                   widget.translationContext,
                   widget.onTranslationContextChanged,
                 ),
-                _dropdownTile(
-                  'Temperature',
-                  widget.translationTemp.toString(),
-                  SettingsSheet._tempOptions,
-                  (v) => widget.onTranslationTempChanged(double.parse(v)),
-                ),
+                if (_supportsTranslationTemperature)
+                  _dropdownTile(
+                    'Temperature',
+                    widget.translationTemp.toString(),
+                    SettingsSheet._tempOptions,
+                    (v) => widget.onTranslationTempChanged(double.parse(v)),
+                  ),
               ],
-              _dropdownTile('번역 톤', widget.toneMode, {
-                'normal': '기본',
-                'polite': '예의',
-                'casual': '친구',
-              }, widget.onToneModeChanged),
+              if (!_isLiveTranslate)
+                _dropdownTile('번역 톤', widget.toneMode, {
+                  'normal': '기본',
+                  'polite': '예의',
+                  'casual': '친구',
+                }, widget.onToneModeChanged),
+              if (!_isRt) ...[
+                _switchTile(
+                  'Ping-Pong 전송 최적화',
+                  widget.pingPongTransportOptimized,
+                  widget.onPingPongTransportOptimizedChanged,
+                ),
+                if (widget.pingPongTransportOptimized)
+                  _dropdownTile(
+                    'WS 백그라운드',
+                    widget.pingPongWsBackgroundGraceSeconds.toString(),
+                    {
+                      '0': 'OFF (즉시 해제)',
+                      '30': '30s',
+                      '60': '60s',
+                      '300': '5분',
+                      '600': '10분',
+                    },
+                    (v) => widget.onPingPongWsBackgroundGraceSecondsChanged(
+                      int.parse(v),
+                    ),
+                  ),
+                if (kIsWeb &&
+                    widget.pingPongTransportOptimized &&
+                    widget.onPingPongWebWsProxyUrlChanged != null)
+                  _textInputTile(
+                    'Web WS Proxy',
+                    widget.pingPongWebWsProxyUrl,
+                    widget.onPingPongWebWsProxyUrlChanged!,
+                    hintText: 'wss://your-domain.example/v1/responses',
+                  ),
+              ],
               if (widget.realtimeActive)
                 const Padding(
                   padding: EdgeInsets.only(left: 80, bottom: 4),
@@ -416,123 +641,169 @@ class _SettingsSheetState extends State<SettingsSheet> {
                 ),
               const SizedBox(height: 12),
 
-              // === AI 어시스턴트 ===
-              _sectionTitle('AI 어시스턴트'),
-              _dropdownTile(
-                'AI 모델',
-                widget.aiModel,
-                SettingsSheet._chatModels,
-                widget.onAiModelChanged,
-              ),
-              _dropdownTile(
-                'AI 묵음',
-                widget.aiPauseSeconds.toString(),
-                {
-                  '1': '1s',
-                  '2': '2s',
-                  '3': '3s',
-                  '5': '5s',
-                  '7': '7s',
-                  '10': '10s',
-                  '30': 'OFF',
-                },
-                (v) => widget.onAiPauseSecondsChanged(int.parse(v)),
-              ),
-              const SizedBox(height: 12),
-
-              // === 역번역 / 발음 ===
-              _sectionTitle('역번역 / 발음'),
-              _switchTile(
-                '${srcLang.name} 역번역',
-                widget.backTranslateSource,
-                widget.onBackTranslateSourceChanged,
-              ),
-              _switchTile(
-                '${tgtLang.name} 역번역',
-                widget.backTranslateTarget,
-                widget.onBackTranslateTargetChanged,
-              ),
-              _switchTile(
-                '한국어 발음 표시',
-                widget.showPronunciation,
-                widget.onShowPronunciationChanged,
-              ),
-              if (_isRt) ...[
+              if (!_isLiveTranslate) ...[
+                // === AI 어시스턴트 ===
+                _sectionTitle('AI 어시스턴트'),
                 _dropdownTile(
-                  'RT 후처리 방식',
-                  widget.rtPostProcessMode,
-                  {'chat': 'Chat 안정', 'realtime2': 'Realtime 2.0 실험'},
-                  widget.onRtPostProcessModeChanged,
-                ),
-                _dropdownTile(
-                  'RT 후처리 모델',
-                  widget.detectModel,
+                  'AI 모델',
+                  widget.aiModel,
                   SettingsSheet._chatModels,
-                  widget.onDetectModelChanged,
+                  widget.onAiModelChanged,
                 ),
                 _dropdownTile(
-                  '분류 Temp',
-                  widget.classifyTemp.toString(),
-                  SettingsSheet._tempOptions,
-                  (v) => widget.onClassifyTempChanged(double.parse(v)),
+                  'AI 묵음',
+                  widget.aiPauseSeconds.toString(),
+                  {
+                    '1': '1s',
+                    '2': '2s',
+                    '3': '3s',
+                    '5': '5s',
+                    '7': '7s',
+                    '10': '10s',
+                    '30': 'OFF',
+                  },
+                  (v) => widget.onAiPauseSecondsChanged(int.parse(v)),
                 ),
+                const SizedBox(height: 12),
               ],
-              _dropdownTile(
-                '발음 Temp',
-                widget.pronunciationTemp.toString(),
-                SettingsSheet._tempOptions,
-                (v) => widget.onPronunciationTempChanged(double.parse(v)),
-              ),
-              const SizedBox(height: 12),
+
+              // 역번역/발음은 라이브(실시간통역)에서도 커밋된 세그먼트에
+              // 비동기 post-process로 적용된다.
+              ...[
+                // === 역번역 / 발음 ===
+                _sectionTitle('역번역 / 발음'),
+                _switchTile(
+                  '${srcLang.name} 역번역',
+                  widget.backTranslateSource,
+                  widget.onBackTranslateSourceChanged,
+                ),
+                _switchTile(
+                  '${tgtLang.name} 역번역',
+                  widget.backTranslateTarget,
+                  widget.onBackTranslateTargetChanged,
+                ),
+                _switchTile(
+                  '한국어 발음 표시',
+                  widget.showPronunciation,
+                  widget.onShowPronunciationChanged,
+                ),
+                _dropdownTile(
+                  '역번역 모델',
+                  widget.postProcessBackTranslationModel,
+                  SettingsSheet._chatModels,
+                  widget.onPostProcessBackTranslationModelChanged,
+                ),
+                _dropdownTile(
+                  '역번역 추론',
+                  widget.postProcessBackTranslationReasoningEffort,
+                  SettingsSheet._reasoningEffortOptions,
+                  widget.onPostProcessBackTranslationReasoningEffortChanged,
+                ),
+                if (_supportsBackTranslationTemperature)
+                  _dropdownTile(
+                    '역번역 Temp',
+                    widget.classifyTemp.toString(),
+                    SettingsSheet._tempOptions,
+                    (v) => widget.onClassifyTempChanged(double.parse(v)),
+                  ),
+                _dropdownTile(
+                  '발음 모델',
+                  widget.postProcessPronunciationModel,
+                  SettingsSheet._chatModels,
+                  widget.onPostProcessPronunciationModelChanged,
+                ),
+                _dropdownTile(
+                  '발음 추론',
+                  widget.postProcessPronunciationReasoningEffort,
+                  SettingsSheet._reasoningEffortOptions,
+                  widget.onPostProcessPronunciationReasoningEffortChanged,
+                ),
+                if (_supportsPronunciationTemperature)
+                  _dropdownTile(
+                    '발음 Temp',
+                    widget.pronunciationTemp.toString(),
+                    SettingsSheet._tempOptions,
+                    (v) => widget.onPronunciationTempChanged(double.parse(v)),
+                  ),
+                const SizedBox(height: 12),
+              ],
 
               // === 음성 출력 ===
               _sectionTitle('음성 출력'),
-              if (widget.mode == 'realtime_dir') ...[
+              if (_isLiveTranslate) ...[
+                _readonlyTile('자막', '${srcLang.name} ↔ ${tgtLang.name}'),
                 _switchTile(
-                  '${srcLang.name} 번역 TTS',
-                  widget.ttsSourceEnabled,
-                  widget.onTtsSourceChanged,
+                  '번역 음성 출력',
+                  widget.liveTranslateAudioEnabled,
+                  widget.onLiveTranslateAudioEnabledChanged,
                 ),
-                _switchTile(
-                  '${tgtLang.name} 번역 TTS',
-                  widget.ttsTargetEnabled,
-                  widget.onTtsTargetChanged,
-                ),
-                _dropdownTile('RT 음성', widget.realtimeVoice, {
-                  'coral': '여',
-                  'ash': '남',
-                  'sage': '중성',
-                  'verse': '부드러움',
-                }, widget.onRealtimeVoiceChanged),
-                if (widget.realtimeActive)
-                  const Padding(
-                    padding: EdgeInsets.only(left: 80, bottom: 4),
-                    child: Text(
-                      '⟳ Realtime 재시작 시 적용',
-                      style: TextStyle(fontSize: 10, color: Colors.orange),
+                if (widget.liveTranslateAudioEnabled)
+                  _dropdownTile(
+                    '이어폰 공유',
+                    widget.liveTranslateAudioRoute,
+                    const {
+                      'mono': '양쪽 같은 음성',
+                      'mine_left': '왼쪽=내 귀 / 오른쪽=상대',
+                      'mine_right': '오른쪽=내 귀 / 왼쪽=상대',
+                    },
+                    widget.onLiveTranslateAudioRouteChanged,
+                  ),
+                if (widget.liveTranslateAudioEnabled)
+                  _dropdownTile(
+                    '초반 보정',
+                    widget.liveTranslateAudioBoostGain.toStringAsFixed(2),
+                    const {
+                      '1.00': 'OFF',
+                      '1.25': '약하게',
+                      '1.65': '기본',
+                      '2.00': '강하게',
+                      '2.35': '매우 강하게',
+                    },
+                    (v) => widget.onLiveTranslateAudioBoostGainChanged(
+                      double.parse(v),
                     ),
                   ),
-              ] else if (widget.mode == 'realtime') ...[
-                _switchTile(
-                  '음성 출력',
-                  widget.ttsTargetEnabled,
-                  widget.onTtsTargetChanged,
-                ),
-                _dropdownTile('RT 음성', widget.realtimeVoice, {
-                  'coral': '여',
-                  'ash': '남',
-                  'sage': '중성',
-                  'verse': '부드러움',
-                }, widget.onRealtimeVoiceChanged),
-                if (widget.realtimeActive)
-                  const Padding(
-                    padding: EdgeInsets.only(left: 80, bottom: 4),
-                    child: Text(
-                      '⟳ Realtime 재시작 시 적용',
-                      style: TextStyle(fontSize: 10, color: Colors.orange),
-                    ),
+                if (widget.liveTranslateAudioEnabled)
+                  _dropdownTile(
+                    '보정 시간',
+                    widget.liveTranslateAudioBoostMs.toString(),
+                    const {
+                      '0': 'OFF',
+                      '500': '0.5s',
+                      '800': '0.8s',
+                      '1100': '1.1s',
+                      '1500': '1.5s',
+                      '2000': '2.0s',
+                    },
+                    (v) =>
+                        widget.onLiveTranslateAudioBoostMsChanged(int.parse(v)),
                   ),
               ] else ...[
+                _dropdownTile(
+                  'TTS 모델',
+                  widget.ttsModel,
+                  SettingsSheet._ttsModels,
+                  widget.onTtsModelChanged,
+                ),
+                if (widget.ttsModel == 'system-tts')
+                  _dropdownTile(
+                    '시스템 TTS 엔진',
+                    widget.systemTtsEngine,
+                    SettingsSheet._systemTtsEngines,
+                    widget.onSystemTtsEngineChanged ?? (_) {},
+                  ),
+                if (widget.ttsModel == 'system-tts' &&
+                    widget.systemTtsEngine != 'direct_web')
+                  _switchTile(
+                    '무음 프라임 (실험)',
+                    widget.systemTtsSilentPrimeEnabled,
+                    widget.onSystemTtsSilentPrimeEnabledChanged ?? (_) {},
+                  ),
+                _dropdownTile('TTS 이어폰 공유', widget.ttsAudioRoute, const {
+                  'mono': '양쪽 같은 음성',
+                  'mine_left': '왼쪽=내 귀 / 오른쪽=상대',
+                  'mine_right': '오른쪽=내 귀 / 왼쪽=상대',
+                }, widget.onTtsAudioRouteChanged),
                 _switchTile(
                   '${srcLang.name} TTS',
                   widget.ttsSourceEnabled,
@@ -565,16 +836,44 @@ class _SettingsSheetState extends State<SettingsSheet> {
               if (!_isRt) ...[
                 _sectionTitle('입력 감지'),
                 _dropdownTile(
-                  '묵음 타임아웃',
+                  'STT 모델',
+                  widget.sttModel,
+                  SettingsSheet._sttModels,
+                  widget.onSttModelChanged,
+                ),
+                if (widget.sttModel == 'gpt-4o-mini-transcribe' ||
+                    widget.sttModel == 'gpt-4o-transcribe')
+                  _switchTile(
+                    '4o STT 벤치마크',
+                    widget.sttBenchmarkEnabled,
+                    widget.onSttBenchmarkEnabledChanged,
+                  ),
+                if (_isAndroidSystemStt)
+                  _switchTile(
+                    '빠른 말풍선 (실험)',
+                    widget.androidSystemSttFastInterim,
+                    widget.onAndroidSystemSttFastInterimChanged,
+                  ),
+                if (widget.sttModel == 'gpt-realtime-whisper' &&
+                    widget.pingPongTransportOptimized)
+                  _dropdownTile(
+                    'STT 지연',
+                    widget.realtimeSttDelay,
+                    SettingsSheet._realtimeSttDelayOptions,
+                    widget.onRealtimeSttDelayChanged,
+                  ),
+                _textInputTile(
+                  'STT 힌트',
+                  widget.sttPrompt,
+                  widget.onSttPromptChanged,
+                  hintText: '고유명사, 자주 나오는 표현 등',
+                ),
+                _dropdownTile(
+                  _isAndroidSystemStt ? '묵음 감지' : '묵음 타임아웃',
                   widget.pauseSeconds.toString(),
-                  {
-                    '1': '1s',
-                    '2': '2s',
-                    '3': '3s',
-                    '5': '5s',
-                    '7': '7s',
-                    '30': 'OFF',
-                  },
+                  _isAndroidSystemStt
+                      ? _androidSystemSttSilenceOptions
+                      : _silenceOptions,
                   (v) => widget.onPauseSecondsChanged(int.parse(v)),
                 ),
                 if (widget.mode == 'openai')
@@ -595,99 +894,95 @@ class _SettingsSheetState extends State<SettingsSheet> {
               ],
               if (_isRt) ...[
                 _sectionTitle('Realtime 설정'),
+                if (_isLiveTranslate)
+                  _dropdownTile(
+                    '입력 소음 보정',
+                    widget.liveTranslateInputNoiseReduction,
+                    SettingsSheet._realtimeNoiseReductionOptions,
+                    widget.onLiveTranslateInputNoiseReductionChanged,
+                  ),
                 _dropdownTile(
-                  'VAD 감도',
-                  widget.vadThreshold.toString(),
+                  '백그라운드',
+                  widget.realtimeBackgroundGraceSeconds.toString(),
                   {
-                    '0.3': '0.3',
-                    '0.5': '0.5',
-                    '0.7': '0.7',
-                    '0.8': '0.8',
-                    '0.9': '0.9',
-                    '0.95': '0.95',
+                    '0': 'OFF (즉시 해제)',
+                    '30': '30s',
+                    '60': '60s',
+                    '300': '5분',
+                    '600': '10분',
                   },
-                  (v) => widget.onVadThresholdChanged(double.parse(v)),
-                ),
-                _switchTile(
-                  '대화 기록 삭제',
-                  widget.deleteConversationItems,
-                  widget.onDeleteConversationItemsChanged,
-                ),
-                _switchTile(
-                  'Few-shot 주입',
-                  widget.injectFewShot,
-                  widget.onInjectFewShotChanged,
+                  (v) => widget.onRealtimeBackgroundGraceSecondsChanged(
+                    int.parse(v),
+                  ),
                 ),
               ],
               const SizedBox(height: 12),
 
-              // === 프롬프트 ===
-              _sectionTitle('프롬프트'),
-              const Text(
-                '사용 가능한 placeholder: {{SOURCE_LANG}}, {{TARGET_LANG}}, {{TONE_INSTRUCTION}}, {{CONTEXT_INSTRUCTION}}',
-                style: TextStyle(fontSize: 11, color: Colors.grey),
-              ),
-              const SizedBox(height: 8),
-              _promptEditor(
-                title: 'translationSystem',
-                storageKey: AppPrompts.translationSystemKey,
-                controller: _translationPromptController,
-                onChanged: widget.onPromptChanged,
-                onReset: widget.onPromptReset,
-                defaultValue: AppPrompts.defaults.translationSystem,
-              ),
-              _promptEditor(
-                title: 'assistantSystem',
-                storageKey: AppPrompts.assistantSystemKey,
-                controller: _assistantPromptController,
-                onChanged: widget.onPromptChanged,
-                onReset: widget.onPromptReset,
-                defaultValue: AppPrompts.defaults.assistantSystem,
-              ),
-              _promptEditor(
-                title: 'ttsInstructions',
-                storageKey: AppPrompts.ttsInstructionsKey,
-                controller: _ttsPromptController,
-                onChanged: widget.onPromptChanged,
-                onReset: widget.onPromptReset,
-                defaultValue: AppPrompts.defaults.ttsInstructions,
-              ),
-              _promptEditor(
-                title: 'realtimeTranslation',
-                storageKey: AppPrompts.realtimeTranslationKey,
-                controller: _realtimePromptController,
-                onChanged: widget.onPromptChanged,
-                onReset: widget.onPromptReset,
-                defaultValue: AppPrompts.defaults.realtimeTranslation,
-              ),
-              _promptEditor(
-                title: 'realtimeDirectional',
-                storageKey: AppPrompts.realtimeDirectionalKey,
-                controller: _directionalPromptController,
-                onChanged: widget.onPromptChanged,
-                onReset: widget.onPromptReset,
-                defaultValue: AppPrompts.defaults.realtimeDirectional,
-              ),
-              _promptEditor(
-                title: 'postProcess',
-                storageKey: AppPrompts.postProcessKey,
-                controller: _postProcessPromptController,
-                onChanged: widget.onPromptChanged,
-                onReset: widget.onPromptReset,
-                defaultValue: AppPrompts.defaults.postProcess,
-              ),
-              if (widget.realtimeActive)
-                const Padding(
-                  padding: EdgeInsets.only(bottom: 8),
-                  child: Text(
-                    'Realtime 프롬프트 수정은 다음 Realtime 시작부터 적용됩니다.',
-                    style: TextStyle(fontSize: 10, color: Colors.orange),
-                  ),
+              if (!_isLiveTranslate) ...[
+                // === 프롬프트 ===
+                _sectionTitle('프롬프트'),
+                const Text(
+                  '사용 가능한 placeholder: {{SOURCE_LANG}}, {{TARGET_LANG}}, {{TONE_INSTRUCTION}}, {{CONTEXT_INSTRUCTION}}',
+                  style: TextStyle(fontSize: 11, color: Colors.grey),
                 ),
-              const SizedBox(height: 12),
+                const SizedBox(height: 8),
+                OutlinedButton.icon(
+                  onPressed: () =>
+                      setState(() => _showPromptEditors = !_showPromptEditors),
+                  icon: Icon(
+                    _showPromptEditors ? Icons.expand_less : Icons.tune,
+                    size: 16,
+                  ),
+                  label: Text(_showPromptEditors ? '프롬프트 접기' : '프롬프트 편집'),
+                ),
+                if (_showPromptEditors) ...[
+                  const SizedBox(height: 8),
+                  _promptEditor(
+                    title: 'translationSystem',
+                    storageKey: AppPrompts.translationSystemKey,
+                    controller: _translationController,
+                    onChanged: widget.onPromptChanged,
+                    onReset: widget.onPromptReset,
+                    defaultValue: AppPrompts.defaults.translationSystem,
+                  ),
+                  _promptEditor(
+                    title: 'assistantSystem',
+                    storageKey: AppPrompts.assistantSystemKey,
+                    controller: _assistantController,
+                    onChanged: widget.onPromptChanged,
+                    onReset: widget.onPromptReset,
+                    defaultValue: AppPrompts.defaults.assistantSystem,
+                  ),
+                  _promptEditor(
+                    title: 'ttsInstructions',
+                    storageKey: AppPrompts.ttsInstructionsKey,
+                    controller: _ttsController,
+                    onChanged: widget.onPromptChanged,
+                    onReset: widget.onPromptReset,
+                    defaultValue: AppPrompts.defaults.ttsInstructions,
+                  ),
+                ],
+                if (_showPromptEditors && widget.realtimeActive)
+                  const Padding(
+                    padding: EdgeInsets.only(bottom: 8),
+                    child: Text(
+                      'Realtime 프롬프트 수정은 다음 Realtime 시작부터 적용됩니다.',
+                      style: TextStyle(fontSize: 10, color: Colors.orange),
+                    ),
+                  ),
+                const SizedBox(height: 12),
+              ],
 
               // === 기타 ===
               _sectionTitle('기타'),
+              if (widget.onShowLogs != null)
+                ListTile(
+                  leading: const Icon(Icons.article_outlined),
+                  title: const Text('로그 보기'),
+                  subtitle: const Text('Ping-Pong/TTS/후처리 로그 확인'),
+                  onTap: widget.onShowLogs,
+                  dense: true,
+                ),
               ListTile(
                 leading: const Icon(Icons.key_off, color: Colors.red),
                 title: const Text('API 키 초기화'),
@@ -735,17 +1030,17 @@ class _SettingsSheetState extends State<SettingsSheet> {
           child: Wrap(
             spacing: 6,
             runSpacing: 4,
-            children: supportedLanguages.map((lang) {
-              final selected = lang.code == current;
-              return ChoiceChip(
-                label: Text(lang.name, style: TextStyle(fontSize: 11)),
-                selected: selected,
-                onSelected: (_) => onChanged(lang.code),
-                visualDensity: VisualDensity.compact,
-                padding: EdgeInsets.zero,
-                labelPadding: const EdgeInsets.symmetric(horizontal: 6),
-              );
-            }).toList(),
+            children: [
+              for (final lang in supportedLanguages)
+                ChoiceChip(
+                  label: Text(lang.name, style: TextStyle(fontSize: 11)),
+                  selected: lang.code == current,
+                  onSelected: (_) => onChanged(lang.code),
+                  visualDensity: VisualDensity.compact,
+                  padding: EdgeInsets.zero,
+                  labelPadding: const EdgeInsets.symmetric(horizontal: 6),
+                ),
+            ],
           ),
         ),
       ],
@@ -768,18 +1063,14 @@ class _SettingsSheetState extends State<SettingsSheet> {
           ),
           Expanded(
             child: DropdownButtonFormField<String>(
-              value: items.containsKey(value) ? value : items.keys.first,
-              items: items.entries
-                  .map(
-                    (e) => DropdownMenuItem(
-                      value: e.key,
-                      child: Text(
-                        e.value,
-                        style: const TextStyle(fontSize: 12),
-                      ),
-                    ),
-                  )
-                  .toList(),
+              initialValue: items.containsKey(value) ? value : items.keys.first,
+              items: [
+                for (final e in items.entries)
+                  DropdownMenuItem(
+                    value: e.key,
+                    child: Text(e.value, style: const TextStyle(fontSize: 12)),
+                  ),
+              ],
               onChanged: (v) {
                 if (v != null) onChanged(v);
               },
@@ -792,6 +1083,74 @@ class _SettingsSheetState extends State<SettingsSheet> {
                 border: OutlineInputBorder(),
               ),
               style: const TextStyle(fontSize: 12, color: Colors.black87),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _textInputTile(
+    String label,
+    String value,
+    ValueChanged<String> onChanged, {
+    String? hintText,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: SizedBox(
+              width: 80,
+              child: Text(label, style: const TextStyle(fontSize: 12)),
+            ),
+          ),
+          Expanded(
+            child: TextFormField(
+              initialValue: value,
+              minLines: 1,
+              maxLines: 3,
+              onChanged: onChanged,
+              decoration: InputDecoration(
+                isDense: true,
+                hintText: hintText,
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 8,
+                  vertical: 8,
+                ),
+                border: const OutlineInputBorder(),
+              ),
+              style: const TextStyle(fontSize: 12, color: Colors.black87),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _readonlyTile(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 80,
+            child: Text(label, style: const TextStyle(fontSize: 12)),
+          ),
+          Expanded(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.grey.shade400),
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Text(
+                value,
+                style: const TextStyle(fontSize: 12, color: Colors.black87),
+              ),
             ),
           ),
         ],

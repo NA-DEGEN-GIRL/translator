@@ -79,6 +79,10 @@ const supportedLanguages = [
   ),
 ];
 
+final _languageByCode = {
+  for (final language in supportedLanguages) language.code: language,
+};
+
 const _languageNamesByReader = <String, Map<String, String>>{
   'ko': {
     'ko': '한국어',
@@ -173,10 +177,19 @@ const _personLabelsByReader = <String, ({String self, String other})>{
   'ru': (self: 'Я', other: 'Собеседник'),
 };
 
-Language getLangByCode(String code) => supportedLanguages.firstWhere(
-  (l) => l.code == code,
-  orElse: () => supportedLanguages[0],
-);
+const _retryLabelsByReader = <String, String>{
+  'ko': '다시',
+  'ja': 'もう一度',
+  'zh': '重试',
+  'en': 'Retry',
+  'de': 'Erneut',
+  'fr': 'Refaire',
+  'vi': 'Làm lại',
+  'ru': 'Ещё раз',
+};
+
+Language getLangByCode(String code) =>
+    _languageByCode[code] ?? supportedLanguages[0];
 
 String languageNameForReader(String languageCode, String readerLangCode) {
   final localized = _languageNamesByReader[readerLangCode]?[languageCode];
@@ -195,3 +208,6 @@ String personLabelForReader({
   if (labels == null) return isSelf ? 'Me' : 'Other';
   return isSelf ? labels.self : labels.other;
 }
+
+String retryLabelForReader(String readerLangCode) =>
+    _retryLabelsByReader[readerLangCode] ?? 'Retry';

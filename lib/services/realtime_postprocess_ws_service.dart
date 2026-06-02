@@ -6,21 +6,41 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 import 'realtime_ws_channel.dart';
 
 class RealtimePostProcessWsService {
+  static const _cleanupTimeout = Duration(seconds: 2);
+  static const _maxIgnoredResponseIds = 24;
+  static const String _responseCreatePayload = '{"type":"response.create"}';
+
   final String apiKey;
   final String instructions;
   final String model;
   final String reasoningEffort;
+  late final Uri _uri = Uri.parse(
+    'wss://api.openai.com/v1/realtime?model=$model',
+  );
+  late final String _sessionUpdatePayload = jsonEncode({
+    'type': 'session.update',
+    'session': {
+      'type': 'realtime',
+      'instructions': instructions,
+      'output_modalities': ['text'],
+      'max_output_tokens': 512,
+      'reasoning': {'effort': reasoningEffort},
+    },
+  });
 
   WebSocketChannel? _channel;
   StreamSubscription? _subscription;
   bool _active = false;
+  bool _stopping = false;
   Completer<void>? _sessionReady;
   Completer<String>? _pendingTextCompleter;
+  Completer<String>? _activeTextCompleter;
   Future<void> _textResultChain = Future.value();
-  final Map<String, StringBuffer> _outputs = {};
-  final Map<String, Completer<String>> _responseCompleters = {};
   String? _lastUserItemId;
-  final Map<String, String?> _responseUserItems = {};
+  String? _activeResponseId;
+  String? _activeUserItemId;
+  StringBuffer? _activeOutput;
+  final Set<String> _ignoredResponseIds = {};
 
   RealtimePostProcessWsService({
     required this.apiKey,
@@ -33,38 +53,43 @@ class RealtimePostProcessWsService {
 
   Future<void> start() async {
     if (_active) return;
-    final uri = Uri.parse('wss://api.openai.com/v1/realtime?model=$model');
-    final channel = connectRealtimeWebSocket(uri: uri, apiKey: apiKey);
-    _channel = channel;
-    _sessionReady = Completer<void>();
-    _subscription = channel.stream.listen(
-      _handleMessage,
-      onError: (Object error) {
-        _completeAllWithError(error);
-      },
-      onDone: () {
-        _active = false;
-        _completeAllWithError(Exception('Realtime post-process socket closed'));
-      },
-    );
-
-    await channel.ready.timeout(const Duration(seconds: 10));
-    channel.sink.add(
-      jsonEncode({
-        'type': 'session.update',
-        'session': {
-          'type': 'realtime',
-          'instructions': instructions,
-          'output_modalities': ['text'],
-          'max_output_tokens': 512,
-          'reasoning': {'effort': reasoningEffort},
+    if (_channel != null || _subscription != null) {
+      await stop();
+    }
+    _stopping = false;
+    try {
+      final channel = connectRealtimeWebSocket(uri: _uri, apiKey: apiKey);
+      final sessionReady = Completer<void>();
+      _channel = channel;
+      _sessionReady = sessionReady;
+      _subscription = channel.stream.listen(
+        _handleMessage,
+        onError: (Object error) {
+          _active = false;
+          _completeSessionReadyWithError(error);
+          _completeAllWithError(error);
         },
-      }),
-    );
+        onDone: () {
+          _active = false;
+          final error = Exception('Realtime post-process socket closed');
+          _completeSessionReadyWithError(error);
+          _completeAllWithError(error);
+        },
+      );
 
-    await _sessionReady!.future.timeout(const Duration(seconds: 10));
-    _sessionReady = null;
-    _active = true;
+      await channel.ready.timeout(const Duration(seconds: 10));
+      _throwIfStopping();
+      channel.sink.add(_sessionUpdatePayload);
+      _throwIfStopping();
+
+      await sessionReady.future.timeout(const Duration(seconds: 10));
+      _throwIfStopping();
+      if (_sessionReady == sessionReady) _sessionReady = null;
+      _active = true;
+    } catch (_) {
+      await stop();
+      rethrow;
+    }
   }
 
   Future<String> sendTextForResult(
@@ -87,32 +112,47 @@ class RealtimePostProcessWsService {
     }
     final completer = Completer<String>();
     _pendingTextCompleter = completer;
-    _channel!.sink.add(
-      jsonEncode({
-        'type': 'conversation.item.create',
-        'item': {
-          'type': 'message',
-          'role': 'user',
-          'content': [
-            {'type': 'input_text', 'text': text},
-          ],
-        },
-      }),
+    _channel!.sink.add(_conversationInputTextItemPayload(text));
+    _channel!.sink.add(_responseCreatePayload);
+    return completer.future.timeout(
+      timeout,
+      onTimeout: () {
+        _removePendingCompleter(completer);
+        throw TimeoutException('Realtime post-process timed out', timeout);
+      },
     );
-    _channel!.sink.add(jsonEncode({'type': 'response.create'}));
-    return completer.future.timeout(timeout);
   }
 
   Future<void> stop() async {
+    _stopping = true;
+    final sessionReady = _sessionReady;
+    if (sessionReady != null && !sessionReady.isCompleted) {
+      sessionReady.complete();
+    }
+    _sessionReady = null;
     _active = false;
     _completeAllWithError(Exception('Realtime post-process socket stopped'));
-    await _subscription?.cancel();
+    final subscription = _subscription;
     _subscription = null;
-    await _channel?.sink.close();
+    final channel = _channel;
     _channel = null;
-    _outputs.clear();
-    _responseUserItems.clear();
+    await Future.wait([
+      if (subscription != null) _cleanup(subscription.cancel()),
+      if (channel != null) _cleanup(channel.sink.close()),
+    ]);
+    _clearActiveResponse();
+    _ignoredResponseIds.clear();
     _lastUserItemId = null;
+  }
+
+  Future<void> _cleanup(Future<void> future) {
+    return future.timeout(_cleanupTimeout, onTimeout: () {}).catchError((_) {});
+  }
+
+  void _throwIfStopping() {
+    if (_stopping) {
+      throw StateError('Realtime post-process socket stopped');
+    }
   }
 
   void _handleMessage(dynamic message) {
@@ -136,49 +176,99 @@ class RealtimePostProcessWsService {
       case 'response.created':
         final responseId = event['response']?['id'] as String?;
         if (responseId == null) return;
-        _outputs[responseId] = StringBuffer();
-        _responseUserItems[responseId] = _lastUserItemId;
-        _lastUserItemId = null;
         final pending = _pendingTextCompleter;
-        if (pending != null) {
-          _responseCompleters[responseId] = pending;
-          _pendingTextCompleter = null;
+        final userItemId = _lastUserItemId;
+        _lastUserItemId = null;
+        if (pending == null) {
+          _ignoreResponseId(responseId);
+          _deleteItemId(userItemId);
+          return;
         }
+        _pendingTextCompleter = null;
+        _activeTextCompleter = pending;
+        _activeResponseId = responseId;
+        _activeUserItemId = userItemId;
+        _activeOutput = StringBuffer();
         break;
       case 'response.output_text.delta':
         final responseId = event['response_id'] as String?;
         if (responseId == null) return;
-        _outputs[responseId]?.write(event['delta'] ?? '');
+        if (responseId == _activeResponseId) {
+          _activeOutput?.write(event['delta'] ?? '');
+        }
         break;
       case 'response.done':
         final responseId = event['response']?['id'] as String?;
         if (responseId == null) return;
-        final output = _outputs.remove(responseId)?.toString() ?? '';
-        final completer = _responseCompleters.remove(responseId);
-        if (completer != null && !completer.isCompleted) {
-          completer.complete(output);
+        if (responseId == _activeResponseId) {
+          final output = _activeOutput?.toString() ?? '';
+          final completer = _activeTextCompleter;
+          final userItemId = _activeUserItemId;
+          _clearActiveResponse();
+          if (completer != null && !completer.isCompleted) {
+            completer.complete(output);
+          }
+          _deleteCompletedItems(event, userItemId: userItemId);
+        } else if (_ignoredResponseIds.remove(responseId)) {
+          _deleteCompletedItems(event, userItemId: null);
         }
-        _deleteCompletedItems(responseId, event);
         break;
       case 'error':
         final message = event['error']?['message']?.toString() ?? 'error';
-        _completeAllWithError(Exception(message));
+        final error = Exception(message);
+        _completeSessionReadyWithError(error);
+        _completeAllWithError(error);
         break;
     }
   }
 
-  void _deleteCompletedItems(String responseId, Map<String, dynamic> event) {
-    final userItemId = _responseUserItems.remove(responseId);
+  void _removePendingCompleter(Completer<String> completer) {
+    if (_pendingTextCompleter == completer) {
+      _pendingTextCompleter = null;
+      final userItemId = _lastUserItemId;
+      _lastUserItemId = null;
+      _deleteItemId(userItemId);
+      return;
+    }
+
+    if (_activeTextCompleter != completer) return;
+    final responseId = _activeResponseId;
+    final userItemId = _activeUserItemId;
+    _clearActiveResponse();
+    if (responseId != null) _ignoreResponseId(responseId);
+    _deleteItemId(userItemId);
+  }
+
+  void _ignoreResponseId(String responseId) {
+    _ignoredResponseIds.add(responseId);
+    while (_ignoredResponseIds.length > _maxIgnoredResponseIds) {
+      _ignoredResponseIds.remove(_ignoredResponseIds.first);
+    }
+  }
+
+  void _deleteCompletedItems(
+    Map<String, dynamic> event, {
+    required String? userItemId,
+  }) {
     final outputItems = event['response']?['output'] as List?;
     final assistantItemId = outputItems?.isNotEmpty == true
         ? outputItems!.first['id'] as String?
         : null;
-    for (final itemId in [userItemId, assistantItemId]) {
-      if (itemId == null) continue;
-      _channel?.sink.add(
-        jsonEncode({'type': 'conversation.item.delete', 'item_id': itemId}),
-      );
-    }
+    _deleteItemId(userItemId);
+    _deleteItemId(assistantItemId);
+  }
+
+  void _deleteItemId(String? itemId) {
+    if (itemId == null || _channel == null || !_active) return;
+    _channel?.sink.add(_conversationItemDeletePayload(itemId));
+  }
+
+  static String _conversationItemDeletePayload(String itemId) {
+    return '{"type":"conversation.item.delete","item_id":${jsonEncode(itemId)}}';
+  }
+
+  static String _conversationInputTextItemPayload(String text) {
+    return '{"type":"conversation.item.create","item":{"type":"message","role":"user","content":[{"type":"input_text","text":${jsonEncode(text)}}]}}';
   }
 
   void _completeAllWithError(Object error) {
@@ -187,9 +277,27 @@ class RealtimePostProcessWsService {
     if (pending != null && !pending.isCompleted) {
       pending.completeError(error);
     }
-    for (final completer in _responseCompleters.values) {
-      if (!completer.isCompleted) completer.completeError(error);
+    final active = _activeTextCompleter;
+    if (active != null && !active.isCompleted) {
+      active.completeError(error);
     }
-    _responseCompleters.clear();
+    _clearActiveResponse();
+    _ignoredResponseIds.clear();
+    _lastUserItemId = null;
+  }
+
+  void _clearActiveResponse() {
+    _activeTextCompleter = null;
+    _activeResponseId = null;
+    _activeUserItemId = null;
+    _activeOutput = null;
+  }
+
+  void _completeSessionReadyWithError(Object error) {
+    final sessionReady = _sessionReady;
+    if (sessionReady != null && !sessionReady.isCompleted) {
+      sessionReady.completeError(error);
+    }
+    _sessionReady = null;
   }
 }

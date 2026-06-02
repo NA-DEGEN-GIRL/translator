@@ -13,7 +13,6 @@ Flutter 기반으로 Android 앱과 웹 브라우저에서 동작합니다.
 ### 대면 화면
 화면을 상하로 나눠 서로 마주 보고 대화할 수 있습니다.
 - **대면**: 위쪽 절반을 180도 회전해 상대방이 읽기 쉬운 기존 뷰
-- **대면 v2**: 떠 있는 마이크 버튼, 얇은 중앙 구분선, 시점별 역할 표기 중심의 실험 뷰
 - **단방향**: 한 사람이 전체 대화 흐름을 보는 일반 채팅 뷰
 - 대면 모드의 제목과 말풍선은 읽는 사람 기준으로 `나 <-> 상대` / `自分 <-> 相手`처럼 현지화됩니다.
 
@@ -21,21 +20,19 @@ Flutter 기반으로 Android 앱과 웹 브라우저에서 동작합니다.
 
 #### 1. Ping-Pong 모드
 음성 인식, 번역, 음성 합성을 모두 OpenAI API로 처리합니다.
-- 음성 인식: 마이크 → 녹음 → OpenAI Whisper API (gpt-4o-mini-transcribe)
-- 번역: OpenAI GPT (5.5 / 5.4 / 5.4-mini / 5.4-nano)
+- 음성 인식: 마이크 → 녹음 → OpenAI Transcriptions API (gpt-4o-mini-transcribe 기본)
+- 번역: OpenAI GPT (5.5 / 5.4 / 5.4-mini / 5.4-nano), reasoning effort 설정 가능
 - 음성 출력: OpenAI gpt-4o-mini-tts
 - 묵음 감지: 주변 소음 레벨(dB) 기반 자동 중지
 
-#### 2. Realtime 모드
-OpenAI Realtime API를 사용한 실시간 음성-음성 통역입니다.
-- 음성 인식 + 번역 + 음성 출력이 하나의 WebRTC 세션에서 처리
-- 발화 종료 자동 감지 (서버 VAD)
-- Realtime 2.0 (`gpt-realtime-2`) 지원
-- **방향별 TTS 제어**: 소스→타깃, 타깃→소스 음성 출력을 개별 on/off
-- **프롬프트 강화**: few-shot 예제, 지식 차단, echo/meta-commentary 방지
-- **원문 표시**: Whisper transcript로 실제 발화 내용 표시
-- **후처리 분리**: 역번역, 발음 표기, 언어 보정은 별도 Chat Completions 모델로 처리
-- TTS를 끄면 Realtime 세션을 텍스트 출력 중심으로 구성해 지연을 줄입니다
+#### 2. 실시간 통역 모드
+OpenAI의 실시간 번역 전용 경로를 사용한 자막 중심 통역입니다.
+- 한국어↔일본어 통역 흐름에 집중
+- 번역 transcript delta를 수신하는 즉시 화면에 반영
+- 원문/번역문을 말풍선으로 누적 표시
+- 역번역, 발음 표기는 커밋된 세그먼트에 별도 Chat Completions 후처리로 적용
+- 역번역과 발음 표기는 독립 요청으로 처리하고 먼저 끝난 결과부터 표시
+- 일반 Realtime 음성 에이전트 모델 기반 번역 모드는 앱에서 제거되었습니다
 
 ### 번역 톤 모드
 - **기본**: 원문 톤 유지
@@ -53,7 +50,7 @@ OpenAI Realtime API를 사용한 실시간 음성-음성 통역입니다.
 언어는 글자의 유니코드 범위로 자동 감지합니다.
 
 ### 번역 결과 표시
-- **원문**: 실제 발화 내용 (Whisper transcript)
+- **원문**: 실제 발화 내용 (STT transcript)
 - **번역문**: 번역된 텍스트 (크게 표시)
 - **역번역** (괄호): 번역 품질 확인용
 - **발음 표기**: 한국어 사용자를 위한 발음 보조 표시 옵션
@@ -66,26 +63,24 @@ OpenAI Realtime API를 사용한 실시간 음성-음성 통역입니다.
 
 | 설정 | 설명 | 적용 모드 |
 |---|---|---|
-| **모드** | Ping-Pong / Realtime | 전체 |
-| **화면** | 대면 / 대면 v2 / 단방향 | 전체 |
+| **모드** | Ping-Pong / 실시간 통역 | 전체 |
+| **화면** | 대면 / 단방향 | 전체 |
 | **번역문 크기** | 번역 결과 본문 글자 크기, 설정창에서 즉시 반영 | 전체 |
 | **보조 글자 크기** | 원문, 역번역, 발음 표기 글자 크기, 설정창에서 즉시 반영 | 전체 |
-| **마이크 투명도** | 대면 v2의 떠 있는 말하기 버튼 투명도 | 대면 v2 |
 | **번역 모델** | GPT 5.5 / 5.4 / 5.4-mini / 5.4-nano | Ping-Pong |
-| **RT 모델** | Realtime mini / standard / 1.5 / 2.0 | Realtime |
-| **RT 후처리 방식** | Chat 안정 모드 또는 별도 Realtime 2.0 WebSocket 텍스트 세션 실험 모드 | Realtime |
-| **RT 후처리 모델** | Realtime 역번역, 발음, 언어 후처리용 Chat Completions 모델 | Realtime |
-| **번역 톤** | 기본 / 예의 / 친구 | 전체 |
+| **번역 추론** | reasoning effort 기본값(미전송) / minimal / low / medium / high, 기본 low | Ping-Pong |
+| **STT 모델** | gpt-4o-mini-transcribe / gpt-4o-transcribe / whisper-1 | Ping-Pong |
+| **STT 힌트** | 음성 인식용 고유명사, 자주 나오는 표현 힌트 | Ping-Pong |
+| **RT 모델** | gpt-realtime-translate 고정 | 실시간 통역 |
+| **번역 톤** | 기본 / 예의 / 친구 | Ping-Pong |
 | **소스 TTS** | 소스 언어 음성 출력 on/off | 전체 |
 | **타깃 TTS** | 타깃 언어 음성 출력 on/off | 전체 |
-| **RT 음성** | Realtime 음성 선택 (coral/ash/sage/verse) | Realtime |
 | **역번역** | 각 언어 방향의 역번역 표시 on/off | 전체 |
 | **한국어 발음 표시** | 한국어 기준 발음 보조 표시 | 전체 |
+| **후처리 모델** | 역번역 / 발음 모델과 reasoning effort 개별 선택 | 전체 |
 | **묵음** | 묵음 감지 시간 (1s~7s / OFF) | Ping-Pong |
 | **소음** | 묵음 판정 기준 (-20dB~-80dB) | Ping-Pong |
-| **VAD 감도** | Realtime VAD 감도 (0.3~0.95) | Realtime |
-| **대화 기록 삭제** | Realtime 세션에 남은 대화 아이템 삭제 | Realtime |
-| **Few-shot 주입** | Realtime 번역 품질 보정 예시 주입 | Realtime |
+| **백그라운드** | 실시간 통역 백그라운드 유지 시간 | 실시간 통역 |
 | **AI 모델** | AI 어시스턴트용 모델 선택 | 전체 |
 | **키초기화** | 저장된 API 키 삭제 | 전체 |
 
@@ -161,10 +156,10 @@ lib/
 |---|---|---|
 | Flutter | 3.x | 크로스플랫폼 (Android + Web) |
 | OpenAI GPT | 5.5 / 5.4 series | 다국어 번역 |
-| OpenAI Chat Completions | 5.5 / 5.4 series | 역번역, 발음 표기, AI 어시스턴트 |
+| OpenAI Chat Completions | 5.5 / 5.4 series | 번역, 역번역, 발음 표기, AI 어시스턴트 |
 | OpenAI TTS | gpt-4o-mini-tts | 음성 합성 |
-| OpenAI STT | gpt-4o-mini-transcribe | 음성 인식 |
-| OpenAI Realtime | gpt-realtime-mini/standard/1.5/2 | 실시간 음성 통역 |
+| OpenAI STT | gpt-4o-mini-transcribe / gpt-4o-transcribe / whisper-1 | 음성 인식 |
+| OpenAI Realtime Translations | gpt-realtime-translate | 실시간 자막 통역 |
 | flutter_webrtc | | WebRTC 연결 |
 | record | | 오디오 녹음 |
 | audioplayers | | 오디오 재생 |
@@ -176,8 +171,8 @@ lib/
 ## 알려진 제한사항
 
 1. **Latin+Latin 언어 쌍** (EN↔DE 등)은 유니코드 기반 언어 감지 불가 → 소스 언어 기본값으로 fallback
-2. **Realtime temperature 고정** → 프롬프트와 톤 지시로 제어
-3. **Realtime 모델/톤/TTS 변경** → 세션 재시작 필요 (설정 변경 시 안내 표시)
+2. **실시간 통역 언어** → 현재 한국어↔일본어 고정
+3. **실시간 통역 출력** → 현재 자막 중심, Realtime 음성 에이전트식 TTS 번역 모드는 제거됨
 4. **빌드 내장 API 키** → APK나 웹 산출물을 공유하면 키도 함께 노출될 수 있음
 
 ---

@@ -26,3 +26,4 @@ node_modules/
 capacitor.config.json
 package.json
 package-lock.json
+.vibe-ide-temp/
