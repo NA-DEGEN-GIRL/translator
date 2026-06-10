@@ -14,6 +14,8 @@ import 'package:path_provider/path_provider.dart';
 import 'package:http/http.dart' as http_client;
 import '../services/openai_service.dart';
 import '../services/blob_url.dart';
+import '../services/headset_media_button_service.dart';
+import '../services/local_translation_service.dart';
 import '../services/realtime_postprocess_ws_service.dart';
 import '../services/responses_text_ws_service.dart';
 import '../services/speech_service.dart';
@@ -78,6 +80,9 @@ class TranslatorScreen extends StatefulWidget {
 class _TranslatorScreenState extends State<TranslatorScreen>
     with WidgetsBindingObserver {
   late OpenAIService _openai;
+  final LocalTranslationService _localTranslation = LocalTranslationService();
+  final HeadsetMediaButtonService _headsetMediaButtons =
+      HeadsetMediaButtonService();
   final SpeechService _speech = SpeechService();
   final AudioPlayer _audioPlayer = AudioPlayer();
   StreamSubscription<PlayerState>? _audioPlayerStateSub;
@@ -336,6 +341,9 @@ class _TranslatorScreenState extends State<TranslatorScreen>
   bool _pingPongTransportOptimized = true;
   int _pingPongWsBackgroundGraceSeconds = 300;
   String _pingPongWebWsProxyUrl = _defaultPingPongWebWsProxyUrl;
+  bool _headsetButtonControlEnabled = false;
+  bool _headsetButtonManualStopEnabled = true;
+  bool _headsetMediaButtonsActive = false;
   PromptTemplateSet _promptTemplates = AppPrompts.defaults;
   int _promptRevision = 0;
   int _ttsInstructionsRevision = 0;
@@ -346,6 +354,7 @@ class _TranslatorScreenState extends State<TranslatorScreen>
   static const _verbosePingPongTimingLogs = true;
   static const _verboseLiveTranslateLogs = true;
   static const _verboseTtsAudioLogs = true;
+  static const String _localTranslationModel = 'mlkit-local';
   static const String _defaultPingPongWebWsProxyUrl = String.fromEnvironment(
     'PINGPONG_WS_PROXY_URL',
     defaultValue: '',
@@ -457,6 +466,14 @@ class _TranslatorScreenState extends State<TranslatorScreen>
     _logAppLine('[PP-TR-BENCH] ${message()}');
   }
 
+  void _logLocalTranslation(String Function() message) {
+    _logAppLine('[PP-LOCAL] ${message()}');
+  }
+
+  void _logHeadsetButton(String Function() message) {
+    _logAppLine('[이어폰 버튼] ${message()}');
+  }
+
   void _logPingPongWs(String Function() message) {
     _logAppLine('[PP-WS] ${message()}');
   }
@@ -498,6 +515,7 @@ class _TranslatorScreenState extends State<TranslatorScreen>
         (directory) => directory.path,
       );
     }
+    _headsetMediaButtons.setHandler(_handleHeadsetMediaButtonEvent);
     _loadSettings();
   }
 
@@ -541,6 +559,8 @@ class _TranslatorScreenState extends State<TranslatorScreen>
     _blobHttpClient.close();
     _ttsAudioCache.clear();
     _ttsAudioRequests.clear();
+    unawaited(_headsetMediaButtons.dispose());
+    unawaited(_localTranslation.dispose());
     _openai.close();
     super.dispose();
   }
@@ -599,6 +619,7 @@ class _TranslatorScreenState extends State<TranslatorScreen>
   }
 
   void _handleAppResumed() {
+    _reclaimHeadsetMediaButtons();
     _handlePingPongWsResumed();
     final backgroundedAt = _realtimeBackgroundedAt;
     _realtimeBackgroundedAt = null;
@@ -933,6 +954,10 @@ class _TranslatorScreenState extends State<TranslatorScreen>
       _pingPongWebWsProxyUrl =
           prefs.getString('pingPongWebWsProxyUrl') ??
           _defaultPingPongWebWsProxyUrl;
+      _headsetButtonControlEnabled =
+          prefs.getBool('headsetButtonControlEnabled') ?? false;
+      _headsetButtonManualStopEnabled =
+          prefs.getBool('headsetButtonManualStopEnabled') ?? true;
       _noiseThreshold =
           prefs.getDouble('noiseThreshold') ?? (kIsWeb ? -60 : -30);
       _vadThreshold = prefs.getDouble('vadThreshold') ?? 0.9;
@@ -943,6 +968,7 @@ class _TranslatorScreenState extends State<TranslatorScreen>
       _promptTemplates = promptTemplates;
     });
     _persistedSettings = _currentSettingsSnapshot();
+    _syncHeadsetMediaButtons();
     _prewarmTtsIfNeeded();
     if (widget.apiKey != 'test-key') {
       _prewarmPingPongTextWsIfNeeded(includePostProcess: true);
@@ -1073,6 +1099,8 @@ class _TranslatorScreenState extends State<TranslatorScreen>
       'pingPongTransportOptimized': _pingPongTransportOptimized,
       'pingPongWsBackgroundGraceSeconds': _pingPongWsBackgroundGraceSeconds,
       'pingPongWebWsProxyUrl': _pingPongWebWsProxyUrl,
+      'headsetButtonControlEnabled': _headsetButtonControlEnabled,
+      'headsetButtonManualStopEnabled': _headsetButtonManualStopEnabled,
       'noiseThreshold': _noiseThreshold,
       'vadThreshold': _vadThreshold,
       'turnDetectionType': _turnDetectionType,
@@ -1241,6 +1269,8 @@ class _TranslatorScreenState extends State<TranslatorScreen>
             pingPongTransportOptimized: _pingPongTransportOptimized,
             pingPongWsBackgroundGraceSeconds: _pingPongWsBackgroundGraceSeconds,
             pingPongWebWsProxyUrl: _pingPongWebWsProxyUrl,
+            headsetButtonControlEnabled: _headsetButtonControlEnabled,
+            headsetButtonManualStopEnabled: _headsetButtonManualStopEnabled,
             toneMode: _toneMode,
             realtimeActive: _realtimeActive,
             realtimeVoice: _realtimeVoice,
@@ -1279,6 +1309,7 @@ class _TranslatorScreenState extends State<TranslatorScreen>
                 }
               });
               setSheetState(() {});
+              _syncHeadsetMediaButtons();
               _saveSettings();
             },
             onModelChanged: (v) {
@@ -1473,6 +1504,15 @@ class _TranslatorScreenState extends State<TranslatorScreen>
                 _pingPongWebWsProxyUrl = v.trim();
                 _discardPingPongTextWs();
               });
+            },
+            onHeadsetButtonControlEnabledChanged: (v) {
+              updateSheetSetting(() {
+                _headsetButtonControlEnabled = v;
+                _syncHeadsetMediaButtons();
+              });
+            },
+            onHeadsetButtonManualStopEnabledChanged: (v) {
+              updateSheetSetting(() => _headsetButtonManualStopEnabled = v);
             },
             deleteConversationItems: _deleteConversationItems,
             onDeleteConversationItemsChanged: (v) {
@@ -2220,6 +2260,8 @@ class _TranslatorScreenState extends State<TranslatorScreen>
     String text, {
     required String sourceLang,
     required String targetLang,
+    required String sourceLangCode,
+    required String targetLangCode,
     required String model,
     required ToneMode tone,
     required double temperature,
@@ -2229,6 +2271,23 @@ class _TranslatorScreenState extends State<TranslatorScreen>
     Stopwatch? timing,
     ValueChanged<String>? onPartialTranslated,
   }) async {
+    if (model == _localTranslationModel) {
+      return _translateWithLocalModel(
+        text,
+        sourceLang: sourceLang,
+        targetLang: targetLang,
+        sourceLangCode: sourceLangCode,
+        targetLangCode: targetLangCode,
+        tone: tone,
+        temperature: temperature,
+        reasoningEffort: reasoningEffort,
+        systemPrompt: systemPrompt,
+        context: context,
+        timing: timing,
+        onPartialTranslated: onPartialTranslated,
+      );
+    }
+
     final benchmarkResult = await _tryRunTranslationBenchmark(
       text,
       sourceLang: sourceLang,
@@ -2308,6 +2367,71 @@ class _TranslatorScreenState extends State<TranslatorScreen>
           'translation.result source=rest chars=${result['translated']?.length ?? 0}',
     );
     return result;
+  }
+
+  Future<Map<String, String?>> _translateWithLocalModel(
+    String text, {
+    required String sourceLang,
+    required String targetLang,
+    required String sourceLangCode,
+    required String targetLangCode,
+    required ToneMode tone,
+    required double temperature,
+    required String? reasoningEffort,
+    required String systemPrompt,
+    List<Map<String, String>>? context,
+    Stopwatch? timing,
+    ValueChanged<String>? onPartialTranslated,
+  }) async {
+    if (timing != null) {
+      _logPingPongTiming('translation_request_sent', timing);
+    }
+    final localClock = Stopwatch()..start();
+    try {
+      final translated = await _localTranslation.translate(
+        text,
+        sourceLangCode: sourceLangCode,
+        targetLangCode: targetLangCode,
+      );
+      if (translated.trim().isNotEmpty) {
+        onPartialTranslated?.call(translated);
+      }
+      if (timing != null) _logPingPongTiming('translation_done', timing);
+      _logLocalTranslation(
+        () =>
+            'result source=$sourceLangCode target=$targetLangCode '
+            'elapsed=${localClock.elapsedMilliseconds}ms chars=${translated.length}',
+      );
+      return {'translated': translated};
+    } catch (error) {
+      _logLocalTranslation(
+        () =>
+            'fallback source=$sourceLangCode target=$targetLangCode '
+            'elapsed=${localClock.elapsedMilliseconds}ms error=$error',
+      );
+      if (timing != null) {
+        _logPingPongTiming('translation_rest_request_sent', timing);
+      }
+      const fallbackModel = 'gpt-5.4-mini';
+      final result = await _openai.translate(
+        text,
+        sourceLang: sourceLang,
+        targetLang: targetLang,
+        model: fallbackModel,
+        tone: tone,
+        temperature: temperature,
+        reasoningEffort: reasoningEffort,
+        systemPrompt: systemPrompt,
+        context: context,
+      );
+      if (timing != null) _logPingPongTiming('translation_done', timing);
+      _logLocalTranslation(
+        () =>
+            'fallback_result model=$fallbackModel '
+            'chars=${result['translated']?.length ?? 0}',
+      );
+      return result;
+    }
   }
 
   String _partialJsonStringField(String raw, String field) {
@@ -2443,6 +2567,7 @@ class _TranslatorScreenState extends State<TranslatorScreen>
       final tgtName = _targetLangName;
       final inputLangName = isSourceToTarget ? srcName : tgtName;
       final outputLangName = isSourceToTarget ? tgtName : srcName;
+      final inputLangCode = isSourceToTarget ? _sourceLang : _targetLang;
       final outputLangCode = isSourceToTarget ? _targetLang : _sourceLang;
       final backTranslationLangCode = isSourceToTarget
           ? _sourceLang
@@ -2468,6 +2593,8 @@ class _TranslatorScreenState extends State<TranslatorScreen>
         text,
         sourceLang: inputLangName,
         targetLang: outputLangName,
+        sourceLangCode: inputLangCode,
+        targetLangCode: outputLangCode,
         model: _model,
         tone: _tone,
         temperature: _translationTemp,
@@ -3278,6 +3405,231 @@ class _TranslatorScreenState extends State<TranslatorScreen>
 
   bool get _hasRecordingStopInProgress =>
       _mirrorStopFuture != null || _recordingStopFuture != null;
+
+  bool get _canUseHeadsetMediaButtons =>
+      !kIsWeb &&
+      defaultTargetPlatform == TargetPlatform.android &&
+      _headsetButtonControlEnabled &&
+      _mode == 'openai' &&
+      !_aiMode;
+
+  bool get _isPrimaryCaptureActive =>
+      _isListening ||
+      _isRecording ||
+      _isRecordingStarting ||
+      _systemSttAcceptingResults;
+
+  bool get _isMirrorCaptureActive =>
+      _isMirrorListening ||
+      _isMirrorStarting ||
+      _mirrorSystemSttAcceptingResults;
+
+  void _syncHeadsetMediaButtons() {
+    final shouldStart = _canUseHeadsetMediaButtons;
+    if (_headsetMediaButtonsActive == shouldStart) return;
+    _headsetMediaButtonsActive = shouldStart;
+    if (shouldStart) {
+      unawaited(
+        _headsetMediaButtons
+            .start()
+            .then((started) {
+              if (!started) {
+                _headsetMediaButtonsActive = false;
+                _logHeadsetButton(() => '활성화 실패');
+              } else {
+                _logHeadsetButton(() => '활성화됨');
+              }
+            })
+            .catchError((Object error) {
+              _headsetMediaButtonsActive = false;
+              _logHeadsetButton(() => '활성화 오류: $error');
+            }),
+      );
+    } else {
+      unawaited(
+        _headsetMediaButtons
+            .stop()
+            .then((_) {
+              _logHeadsetButton(() => '비활성화됨');
+            })
+            .catchError((Object error) {
+              _logHeadsetButton(() => '비활성화 오류: $error');
+            }),
+      );
+    }
+  }
+
+  // 다른 앱이 오디오를 재생하면 미디어 버튼 라우팅을 뺏기므로, 네이티브
+  // startListening을 다시 호출해 무음 재생으로 버튼 세션을 되찾는다.
+  void _reclaimHeadsetMediaButtons() {
+    if (!_headsetMediaButtonsActive || !_canUseHeadsetMediaButtons) return;
+    unawaited(
+      _headsetMediaButtons.start().catchError((Object error) {
+        _logHeadsetButton(() => '재클레임 오류: $error');
+        return false;
+      }),
+    );
+  }
+
+  void _handleHeadsetMediaButtonEvent(HeadsetMediaButtonEvent event) {
+    _logHeadsetButton(() => '수신 action=${event.action} key=${event.keyCode}');
+    if (!_canUseHeadsetMediaButtons) {
+      _logHeadsetButton(
+        () =>
+            '무시: enabled=$_headsetButtonControlEnabled mode=$_mode ai=$_aiMode',
+      );
+      return;
+    }
+    switch (event.action) {
+      case 'play_pause':
+        _handleHeadsetTargetButton();
+        break;
+      case 'next':
+        _handleHeadsetSourceButton();
+        break;
+      case 'previous':
+        _handleHeadsetRetryOrCancelButton();
+        break;
+      default:
+        _logHeadsetButton(() => '무시: unknown=${event.action}');
+    }
+  }
+
+  void _handleHeadsetTargetButton() {
+    _logHeadsetButton(() => '1탭 처리: 상대 언어 발화');
+    if (_displayMode == 'face') {
+      _toggleMirrorPingPongFromHeadset();
+    } else {
+      _togglePrimaryPingPongFromHeadset(
+        lang: _targetLang,
+        direction: 'target2source',
+        label: '상대',
+      );
+    }
+  }
+
+  void _handleHeadsetSourceButton() {
+    _logHeadsetButton(() => '2탭 처리: 내 언어 발화');
+    _togglePrimaryPingPongFromHeadset(
+      lang: _sourceLang,
+      direction: 'source2target',
+      label: '내',
+    );
+  }
+
+  void _togglePrimaryPingPongFromHeadset({
+    required String lang,
+    required String direction,
+    required String label,
+  }) {
+    if (_isPrimaryCaptureActive && _micLang == lang) {
+      if (!_headsetButtonManualStopEnabled) {
+        _logHeadsetButton(() => '$label 발화 종료 무시: 같은 버튼 종료 OFF');
+        return;
+      }
+      _logHeadsetButton(() => '$label 발화 종료');
+      if (_usesSystemStt) {
+        unawaited(_stopSystemListening());
+      } else {
+        unawaited(_stopOpenAIRecording(forceDirection: direction));
+      }
+      return;
+    }
+    _logHeadsetButton(() => '$label 발화 시작');
+    _handleMicTap(lang, direction);
+  }
+
+  void _toggleMirrorPingPongFromHeadset() {
+    if (_isMirrorCaptureActive) {
+      if (!_headsetButtonManualStopEnabled) {
+        _logHeadsetButton(() => '상대 발화 종료 무시: 같은 버튼 종료 OFF');
+        return;
+      }
+      _logHeadsetButton(() => '상대 발화 종료');
+      unawaited(_stopMirrorListening());
+      return;
+    }
+    _logHeadsetButton(() => '상대 발화 시작');
+    unawaited(_startMirrorListening());
+  }
+
+  void _handleHeadsetRetryOrCancelButton() {
+    _logHeadsetButton(() => '3탭 처리: 다시/취소');
+    if (_isPrimaryCaptureActive || _isMirrorCaptureActive) {
+      unawaited(_cancelActivePingPongCapture());
+      return;
+    }
+
+    final retryable = _messages.reversed
+        .where(_canRetryPingPongMessage)
+        .cast<ChatMessage?>()
+        .firstWhere((message) => message != null, orElse: () => null);
+    if (retryable == null) {
+      _logHeadsetButton(() => '다시 대상 없음');
+      return;
+    }
+    unawaited(_retryPingPongMessage(retryable));
+  }
+
+  Future<void> _cancelActivePingPongCapture() async {
+    if (_isMirrorCaptureActive) {
+      _logHeadsetButton(() => '현재 상대 발화 취소');
+      await _cancelPingPongCapture(_mirrorRecorderOwner);
+      return;
+    }
+    if (_isPrimaryCaptureActive) {
+      _logHeadsetButton(() => '현재 내 발화 취소');
+      await _cancelPingPongCapture(_primaryRecorderOwner);
+    }
+  }
+
+  Future<void> _cancelPingPongCapture(String owner) async {
+    if (owner == _mirrorRecorderOwner && !_mirrorUsesOpenAIRecording) {
+      await _cancelPingPongSystemCapture(owner);
+      return;
+    }
+    if (owner == _primaryRecorderOwner && _usesSystemStt) {
+      await _cancelPingPongSystemCapture(owner);
+      return;
+    }
+
+    _silenceTimer?.cancel();
+    _silenceTimer = null;
+    await _ampSub?.cancel();
+    _ampSub = null;
+    final recording = await _stopRecorderIfOwner(owner).catchError((Object _) {
+      return null;
+    });
+    await recording?.realtimeStt?.stop().catchError((Object _) {});
+
+    if (owner == _mirrorRecorderOwner) {
+      _mirrorRecordingSerial++;
+      _mirrorUsesOpenAIRecording = false;
+      if (mounted) {
+        setState(() {
+          _isMirrorListening = false;
+          _isMirrorStarting = false;
+          _setMirrorInterimTextValue('');
+        });
+      } else {
+        _isMirrorListening = false;
+        _isMirrorStarting = false;
+      }
+      return;
+    }
+
+    _recordingSerial++;
+    if (mounted) {
+      setState(() {
+        _isRecording = false;
+        _isRecordingStarting = false;
+        _setInterimTextValue('');
+      });
+    } else {
+      _isRecording = false;
+      _isRecordingStarting = false;
+    }
+  }
 
   void _setPrimaryRecordingStartingUi(String lang, String status) {
     if (mounted) {
@@ -8201,6 +8553,7 @@ Schema:
           await _stopAll(processRecordingsInBackground: true);
         }
         setState(() => _aiMode = !_aiMode);
+        _syncHeadsetMediaButtons();
         if (_realtimeActive) {
           if (_aiMode) {
             _realtime?.enterAIHold();
@@ -8731,6 +9084,7 @@ Schema:
   }
 
   void _handleMicTap(String lang, String direction) {
+    _reclaimHeadsetMediaButtons();
     if (_isRecording) {
       final currentLang = _micLang;
       final currentDirection = _directionForMicLang(currentLang);

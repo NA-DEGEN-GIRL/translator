@@ -21,6 +21,11 @@ class SettingsSheet extends StatefulWidget {
     'gpt-5.4-nano': '5.4-nano',
   };
 
+  static const _translationModels = {
+    ..._chatModels,
+    'mlkit-local': 'ML Kit 로컬 (Android/iOS)',
+  };
+
   static const _reasoningEffortOptions = {
     '': '기본값 (미전송)',
     'minimal': 'minimal',
@@ -97,6 +102,8 @@ class SettingsSheet extends StatefulWidget {
   final bool pingPongTransportOptimized;
   final int pingPongWsBackgroundGraceSeconds;
   final String pingPongWebWsProxyUrl;
+  final bool headsetButtonControlEnabled;
+  final bool headsetButtonManualStopEnabled;
   final String toneMode;
   final bool realtimeActive;
   final String realtimeVoice;
@@ -139,6 +146,8 @@ class SettingsSheet extends StatefulWidget {
   final ValueChanged<bool> onPingPongTransportOptimizedChanged;
   final ValueChanged<int> onPingPongWsBackgroundGraceSecondsChanged;
   final ValueChanged<String>? onPingPongWebWsProxyUrlChanged;
+  final ValueChanged<bool> onHeadsetButtonControlEnabledChanged;
+  final ValueChanged<bool> onHeadsetButtonManualStopEnabledChanged;
   final bool deleteConversationItems;
   final ValueChanged<bool> onDeleteConversationItemsChanged;
   final bool injectFewShot;
@@ -222,6 +231,8 @@ class SettingsSheet extends StatefulWidget {
     this.pingPongTransportOptimized = true,
     this.pingPongWsBackgroundGraceSeconds = 300,
     this.pingPongWebWsProxyUrl = '',
+    this.headsetButtonControlEnabled = false,
+    this.headsetButtonManualStopEnabled = true,
     required this.toneMode,
     this.realtimeActive = false,
     this.realtimeVoice = 'coral',
@@ -264,6 +275,8 @@ class SettingsSheet extends StatefulWidget {
     required this.onPingPongTransportOptimizedChanged,
     required this.onPingPongWsBackgroundGraceSecondsChanged,
     this.onPingPongWebWsProxyUrlChanged,
+    required this.onHeadsetButtonControlEnabledChanged,
+    required this.onHeadsetButtonManualStopEnabledChanged,
     this.deleteConversationItems = true,
     required this.onDeleteConversationItemsChanged,
     this.injectFewShot = true,
@@ -341,12 +354,15 @@ class _SettingsSheetState extends State<SettingsSheet> {
       !kIsWeb &&
       defaultTargetPlatform == TargetPlatform.android &&
       widget.sttModel == 'system-stt';
+  bool get _supportsHeadsetButtons =>
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
 
   bool get _isRealtimeTranslate => widget.mode == 'realtime_translate';
   bool get _isLiveTranslate => _isRealtimeTranslate;
   bool get _isRt => _isLiveTranslate;
+  bool get _isLocalTranslationModel => widget.model == 'mlkit-local';
   bool get _supportsTranslationTemperature =>
-      _supportsCustomTemperature(widget.model);
+      !_isLocalTranslationModel && _supportsCustomTemperature(widget.model);
   bool get _supportsBackTranslationTemperature =>
       _supportsCustomTemperature(widget.postProcessBackTranslationModel);
   bool get _supportsPronunciationTemperature =>
@@ -565,27 +581,30 @@ class _SettingsSheetState extends State<SettingsSheet> {
                 _dropdownTile(
                   '번역 모델',
                   widget.model,
-                  SettingsSheet._chatModels,
+                  SettingsSheet._translationModels,
                   widget.onModelChanged,
                 ),
-                _dropdownTile(
-                  '번역 추론',
-                  widget.translationReasoningEffort,
-                  SettingsSheet._reasoningEffortOptions,
-                  widget.onTranslationReasoningEffortChanged,
-                ),
-                _switchTile(
-                  '번역 벤치마크',
-                  widget.translationBenchmarkEnabled,
-                  widget.onTranslationBenchmarkEnabledChanged,
-                ),
+                if (!_isLocalTranslationModel) ...[
+                  _dropdownTile(
+                    '번역 추론',
+                    widget.translationReasoningEffort,
+                    SettingsSheet._reasoningEffortOptions,
+                    widget.onTranslationReasoningEffortChanged,
+                  ),
+                  _switchTile(
+                    '번역 벤치마크',
+                    widget.translationBenchmarkEnabled,
+                    widget.onTranslationBenchmarkEnabledChanged,
+                  ),
+                ],
               ],
               if (!_isRt) ...[
-                _switchTile(
-                  '대화 맥락 주입',
-                  widget.translationContext,
-                  widget.onTranslationContextChanged,
-                ),
+                if (!_isLocalTranslationModel)
+                  _switchTile(
+                    '대화 맥락 주입',
+                    widget.translationContext,
+                    widget.onTranslationContextChanged,
+                  ),
                 if (_supportsTranslationTemperature)
                   _dropdownTile(
                     'Temperature',
@@ -594,7 +613,7 @@ class _SettingsSheetState extends State<SettingsSheet> {
                     (v) => widget.onTranslationTempChanged(double.parse(v)),
                   ),
               ],
-              if (!_isLiveTranslate)
+              if (!_isLiveTranslate && !_isLocalTranslationModel)
                 _dropdownTile('번역 톤', widget.toneMode, {
                   'normal': '기본',
                   'polite': '예의',
@@ -630,6 +649,21 @@ class _SettingsSheetState extends State<SettingsSheet> {
                     widget.onPingPongWebWsProxyUrlChanged!,
                     hintText: 'wss://your-domain.example/v1/responses',
                   ),
+                if (_supportsHeadsetButtons) ...[
+                  _switchTile(
+                    '이어폰 발화 제어',
+                    widget.headsetButtonControlEnabled,
+                    widget.onHeadsetButtonControlEnabledChanged,
+                  ),
+                  if (widget.headsetButtonControlEnabled)
+                    _switchTile(
+                      '같은 버튼으로 종료',
+                      widget.headsetButtonManualStopEnabled,
+                      widget.onHeadsetButtonManualStopEnabledChanged,
+                    ),
+                  if (widget.headsetButtonControlEnabled)
+                    _readonlyTile('이어폰 매핑', '1탭=상대, 2탭=나, 3탭=다시/취소'),
+                ],
               ],
               if (widget.realtimeActive)
                 const Padding(
