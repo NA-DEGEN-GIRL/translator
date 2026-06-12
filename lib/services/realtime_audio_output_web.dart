@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:js_interop';
 import 'dart:typed_data';
 
@@ -268,6 +269,90 @@ class RealtimeAudioOutputController {
       } catch (_) {}
     }
     _bufferedSources.clear();
+  }
+
+  // ===== 스트리밍 PCM 재생 (Gemini live-translate 연속 오디오) =====
+  // 들어오는 PCM16 청크를 러닝 커서에 스케줄해 gapless로 이어 붙인다.
+  // 단, 모델이 실시간보다 빠르게(중복 재생성) 보내므로 버퍼가 이 한계를 넘으면
+  // 새 청크를 버려 실시간 재생을 유지한다(반복 재생 방지).
+  static const double _maxLookaheadSeconds = 1.0;
+  static double _streamCursor = 0;
+  static final Set<web.AudioBufferSourceNode> _streamSources = {};
+
+  // 동기 실행(중간에 await 없음)이 중요 — 청크마다 비동기로 호출되는데 await가
+  // 끼면 여러 청크가 같은 _streamCursor를 읽어 같은 시각에 스케줄→겹쳐 재생된다.
+  static Future<bool> enqueuePcm(
+    Uint8List pcm16, {
+    required int sampleRate,
+    double pan = 0,
+  }) async {
+    try {
+      final context = _sharedContext ??= web.AudioContext();
+      _ensureKeepAlive(context);
+      unawaited(_resume(context)); // fire-and-forget (연결 시 이미 resume됨)
+
+      final frames = pcm16.lengthInBytes ~/ 2;
+      if (frames == 0) return true;
+      // 백로그가 한계를 넘으면(모델이 실시간 초과 송출) 이 청크를 버린다.
+      final nowCheck = context.currentTime;
+      if (_streamCursor - nowCheck > _maxLookaheadSeconds) {
+        return true;
+      }
+      final bd = ByteData.sublistView(pcm16);
+      final buffer = web.AudioBuffer(
+        web.AudioBufferOptions(
+          numberOfChannels: 1,
+          length: frames,
+          sampleRate: sampleRate,
+        ),
+      );
+      final channel = buffer.getChannelData(0).toDart;
+      for (var i = 0; i < frames; i++) {
+        channel[i] = bd.getInt16(i * 2, Endian.little) / 32768.0;
+      }
+
+      final source = context.createBufferSource();
+      source.buffer = buffer;
+      final panner = context.createStereoPanner();
+      panner.pan.value = _normalizePan(pan);
+      source.connect(panner);
+      panner.connect(context.destination);
+
+      final now = context.currentTime;
+      // 커서가 뒤처지면(무음 후 새 발화) 살짝 미래로 리셋해 끊김 방지.
+      final startAt = _streamCursor > now + 0.02 ? _streamCursor : now + 0.06;
+      _streamSources.add(source);
+      source.start(startAt);
+      _streamCursor = startAt + buffer.duration;
+
+      final cleanupMs =
+          ((startAt - now + buffer.duration) * 1000).ceil() + 150;
+      Future<void>.delayed(Duration(milliseconds: cleanupMs), () {
+        _streamSources.remove(source);
+        try {
+          source.disconnect();
+        } catch (_) {}
+        try {
+          panner.disconnect();
+        } catch (_) {}
+      });
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static Future<void> stopStream() async {
+    _streamCursor = 0;
+    for (final source in _streamSources.toList(growable: false)) {
+      try {
+        source.stop();
+      } catch (_) {}
+      try {
+        source.disconnect();
+      } catch (_) {}
+    }
+    _streamSources.clear();
   }
 
   Future<void> _configureOutput(double pan) async {

@@ -78,10 +78,12 @@ void main() {
 
     expect(find.byKey(const ValueKey('directional-mic-a')), findsNothing);
     expect(find.byKey(const ValueKey('directional-mic-b')), findsNothing);
-    expect(find.byKey(const ValueKey('translate-mic-source')), findsOneWidget);
-    expect(find.byKey(const ValueKey('translate-mic-target')), findsOneWidget);
-    expect(find.byKey(const ValueKey('rt-power-button')), findsOneWidget);
-    expect(find.byIcon(Icons.pause), findsNothing);
+    // 실시간 통역(수동 턴): 연결 버튼 + 방향 턴 마이크 2개.
+    expect(find.byKey(const ValueKey('translate-mic-source')), findsNothing);
+    expect(find.byKey(const ValueKey('translate-mic-target')), findsNothing);
+    expect(find.byKey(const ValueKey('lt-connect-button')), findsOneWidget);
+    expect(find.byKey(const ValueKey('lt-turn-mic-a')), findsOneWidget);
+    expect(find.byKey(const ValueKey('lt-turn-mic-b')), findsOneWidget);
   });
 
   testWidgets('legacy face v2 display migrates to face view', (
@@ -120,7 +122,7 @@ void main() {
     expect(find.byKey(const ValueKey('rt-power-button')), findsNothing);
   });
 
-  testWidgets('realtime translate single view shows direction mics and power', (
+  testWidgets('realtime translate single view shows connect + turn mics', (
     WidgetTester tester,
   ) async {
     SharedPreferences.setMockInitialValues({
@@ -134,10 +136,12 @@ void main() {
     await tester.pumpWidget(const KoJaApp(apiKey: 'test-key'));
     await tester.pump();
 
-    expect(find.byKey(const ValueKey('translate-mic-source')), findsOneWidget);
-    expect(find.byKey(const ValueKey('translate-mic-target')), findsOneWidget);
-    expect(find.byKey(const ValueKey('rt-power-button')), findsOneWidget);
-    expect(find.byIcon(Icons.pause), findsNothing);
+    // 수동 턴: 연결 버튼 + 방향 턴 마이크 2개(레거시 자동감지 마이크 키 없음).
+    expect(find.byKey(const ValueKey('translate-mic-source')), findsNothing);
+    expect(find.byKey(const ValueKey('translate-mic-target')), findsNothing);
+    expect(find.byKey(const ValueKey('lt-connect-button')), findsOneWidget);
+    expect(find.byKey(const ValueKey('lt-turn-mic-a')), findsOneWidget);
+    expect(find.byKey(const ValueKey('lt-turn-mic-b')), findsOneWidget);
   });
 
   testWidgets('legacy removed live mode migrates to realtime translate UI', (
@@ -154,13 +158,14 @@ void main() {
     await tester.pumpWidget(const KoJaApp(apiKey: 'test-key'));
     await tester.pump();
 
-    expect(find.byKey(const ValueKey('translate-mic-source')), findsOneWidget);
-    expect(find.byKey(const ValueKey('translate-mic-target')), findsOneWidget);
-    expect(find.byKey(const ValueKey('rt-power-button')), findsOneWidget);
+    // 레거시 google_translate 모드는 realtime_translate(Gemini)로 마이그레이션 → 단일 버튼.
+    expect(find.byKey(const ValueKey('translate-mic-source')), findsNothing);
+    expect(find.byKey(const ValueKey('translate-mic-target')), findsNothing);
+    expect(find.byKey(const ValueKey('lt-connect-button')), findsOneWidget);
     expect(find.byIcon(Icons.pause), findsNothing);
   });
 
-  testWidgets('realtime translate expanded input keeps direction mics', (
+  testWidgets('realtime translate expanded input keeps single connect button', (
     WidgetTester tester,
   ) async {
     SharedPreferences.setMockInitialValues({
@@ -172,10 +177,9 @@ void main() {
     await tester.pumpWidget(const KoJaApp(apiKey: 'test-key'));
     await tester.pump();
 
-    expect(find.byKey(const ValueKey('translate-mic-source')), findsOneWidget);
-    expect(find.byKey(const ValueKey('translate-mic-target')), findsOneWidget);
-    expect(find.byKey(const ValueKey('rt-power-button')), findsOneWidget);
-    expect(find.byIcon(Icons.mic), findsNWidgets(2));
+    expect(find.byKey(const ValueKey('translate-mic-source')), findsNothing);
+    expect(find.byKey(const ValueKey('translate-mic-target')), findsNothing);
+    expect(find.byKey(const ValueKey('lt-connect-button')), findsOneWidget);
   });
 
   testWidgets('realtime translate face view uses compact direction mics', (
@@ -206,7 +210,7 @@ void main() {
   testWidgets('realtime translate settings hide unsupported controls', (
     WidgetTester tester,
   ) async {
-    await tester.binding.setSurfaceSize(const Size(800, 1600));
+    await tester.binding.setSurfaceSize(const Size(800, 2400));
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
     await tester.pumpWidget(
@@ -332,15 +336,18 @@ void main() {
             onPromptChanged: (_, _) async {},
             onPromptReset: (_) async {},
             onResetApiKey: _ignoreVoid,
+            onSetGoogleApiKey: (_) {},
+            onClearGoogleApiKey: _ignoreVoid,
           ),
         ),
       ),
     );
 
-    expect(find.text('RT 모델'), findsOneWidget);
-    expect(find.text('gpt-realtime-translate'), findsOneWidget);
-    expect(find.text('통역 언어'), findsOneWidget);
-    expect(find.text('한국어 ↔ 日本語'), findsWidgets);
+    expect(find.text('실시간 모델'), findsOneWidget);
+    expect(find.text('gemini-3.5-live-translate'), findsOneWidget);
+    // 실시간 통역도 8개 언어 자유 선택 — 언어 셀렉터가 노출된다.
+    expect(find.text('소스'), findsOneWidget);
+    expect(find.text('타겟'), findsOneWidget);
     expect(find.text('AI 어시스턴트'), findsNothing);
     expect(find.text('번역 톤'), findsNothing);
     expect(find.text('프롬프트'), findsNothing);

@@ -26,13 +26,13 @@ Flutter 기반으로 Android 앱과 웹 브라우저에서 동작합니다.
 - 묵음 감지: 주변 소음 레벨(dB) 기반 자동 중지
 
 #### 2. 실시간 통역 모드
-OpenAI의 실시간 번역 전용 경로를 사용한 자막 중심 통역입니다.
-- 한국어↔일본어 통역 흐름에 집중
-- 번역 transcript delta를 수신하는 즉시 화면에 반영
-- 원문/번역문을 말풍선으로 누적 표시
-- 역번역, 발음 표기는 커밋된 세그먼트에 별도 Chat Completions 후처리로 적용
-- 역번역과 발음 표기는 독립 요청으로 처리하고 먼저 끝난 결과부터 표시
-- 일반 Realtime 음성 에이전트 모델 기반 번역 모드는 앱에서 제거되었습니다
+Google Gemini Live Translate(`gemini-3.5-live-translate-preview`) 듀얼 세션 기반 자막 중심 통역입니다.
+- 8개 언어 자유 선택 (KO↔JA 고정 아님)
+- **수동 방향 턴**: 연결 버튼으로 두 세션을 일시정지 상태로 연결 → 방향 턴 마이크 2개(또는 이어폰)로 턴 시작. 한 번에 활성 방향 하나만 마이크를 열어 교차 오인을 차단
+- 입력 원문은 `inputAudioTranscription`으로 즉시 말풍선에 표시(지연 체감 완화)
+- 번역 음성 출력 토글 (기본 ON, turn 단위 PCM 재생)
+- 역번역·발음 표기는 커밋된 세그먼트에 별도 OpenAI Chat Completions 후처리로 적용(독립 요청, 먼저 끝난 결과부터 표시)
+- 기존 OpenAI Realtime(`gpt-realtime-translate`/WebRTC) 실시간 경로는 제거되었습니다
 
 ### 번역 톤 모드
 - **기본**: 원문 톤 유지
@@ -71,7 +71,8 @@ OpenAI의 실시간 번역 전용 경로를 사용한 자막 중심 통역입니
 | **번역 추론** | reasoning effort 기본값(미전송) / minimal / low / medium / high, 기본 low | Ping-Pong |
 | **STT 모델** | gpt-4o-mini-transcribe / gpt-4o-transcribe / whisper-1 | Ping-Pong |
 | **STT 힌트** | 음성 인식용 고유명사, 자주 나오는 표현 힌트 | Ping-Pong |
-| **RT 모델** | gpt-realtime-translate 고정 | 실시간 통역 |
+| **RT 모델** | gemini-3.5-live-translate-preview 고정 | 실시간 통역 |
+| **번역 음성** | 실시간 통역 번역 음성 출력 on/off (기본 ON) | 실시간 통역 |
 | **번역 톤** | 기본 / 예의 / 친구 | Ping-Pong |
 | **소스 TTS** | 소스 언어 음성 출력 on/off | 전체 |
 | **타깃 TTS** | 타깃 언어 음성 출력 on/off | 전체 |
@@ -98,9 +99,9 @@ OpenAI의 실시간 번역 전용 경로를 사용한 자막 중심 통역입니
 
 ```bash
 flutter pub get
-flutter run -d chrome                                    # 웹
-flutter run -d chrome --dart-define=OPENAI_API_KEY=...   # 키 내장, 개인용
-flutter run                                               # Android
+flutter run -d chrome                                       # 웹 (키는 앱에서 입력)
+flutter run -d chrome --dart-define-from-file=.env.flutter  # 키 내장, 개인용
+flutter run                                                  # Android
 ```
 
 ### 빌드
@@ -108,19 +109,31 @@ flutter run                                               # Android
 ```bash
 # APK (split-per-abi 권장)
 flutter build apk --release --split-per-abi
-flutter build apk --release --split-per-abi --dart-define=OPENAI_API_KEY=...
+flutter build apk --release --split-per-abi --dart-define-from-file=.env.flutter
 
 # 웹
 flutter build web --release
+flutter build web --release --dart-define-from-file=.env.flutter   # 키 내장, 개인용
+
+# 웹 빌드 서빙 (예시)
+python3 -m http.server 8090 --directory build/web
 ```
 
 ---
 
 ## API 키 관리
 
-- **앱 내 입력**: 첫 실행 시 API 키 입력 → Android: 키스토어 암호화 저장, Web: 로컬 스토리지
-- **빌드 내장**: `--dart-define=OPENAI_API_KEY=...`로 빌드 시 내장할 수 있습니다. 개인용 APK에만 사용하세요
-- **초기화**: 설정 > 키초기화
+dart-define 키 (`.env.flutter.example` 참고 → `.env.flutter`로 복사해 사용):
+
+| 키 | 용도 | 필수 |
+|---|---|---|
+| `OPENAI_API_KEY` | Ping-Pong 번역/STT/TTS + 역번역·발음 후처리 | 필수 |
+| `GOOGLE_API_KEY` | 실시간 통역 (gemini-3.5-live-translate-preview) | 실시간 통역 사용 시 |
+| `PINGPONG_WS_PROXY_URL` | Ping-Pong 웹 WS 프록시 | 선택 |
+
+- **앱 내 입력**: 첫 실행 시 OpenAI 키 입력 → Android 키스토어 / Web 로컬스토리지. Google 키는 설정 시트에서 입력.
+- **빌드 내장(개인용)**: `--dart-define-from-file=.env.flutter` 로 한 번에 주입. 키가 산출물에 포함되므로 개인용에만 사용.
+- **초기화**: 설정 > API 키 초기화 / Gemini 키는 옆 삭제 버튼.
 
 ## 보안 및 커밋 주의사항
 
@@ -159,8 +172,8 @@ lib/
 | OpenAI Chat Completions | 5.5 / 5.4 series | 번역, 역번역, 발음 표기, AI 어시스턴트 |
 | OpenAI TTS | gpt-4o-mini-tts | 음성 합성 |
 | OpenAI STT | gpt-4o-mini-transcribe / gpt-4o-transcribe / whisper-1 | 음성 인식 |
-| OpenAI Realtime Translations | gpt-realtime-translate | 실시간 자막 통역 |
-| flutter_webrtc | | WebRTC 연결 |
+| Gemini Live Translate | gemini-3.5-live-translate-preview | 실시간 자막 통역 (WebSocket 듀얼 세션) |
+| web_socket_channel | | Gemini Live WebSocket 직결 |
 | record | | 오디오 녹음 |
 | audioplayers | | 오디오 재생 |
 | flutter_secure_storage | | API 키 암호화 (Android) |
@@ -171,9 +184,10 @@ lib/
 ## 알려진 제한사항
 
 1. **Latin+Latin 언어 쌍** (EN↔DE 등)은 유니코드 기반 언어 감지 불가 → 소스 언어 기본값으로 fallback
-2. **실시간 통역 언어** → 현재 한국어↔일본어 고정
-3. **실시간 통역 출력** → 현재 자막 중심, Realtime 음성 에이전트식 TTS 번역 모드는 제거됨
-4. **빌드 내장 API 키** → APK나 웹 산출물을 공유하면 키도 함께 노출될 수 있음
+2. **실시간 통역 방향** → 수동 턴(방향 버튼/이어폰으로 전환). 두 translate 세션이 자기 소스로 환각하고 dev API에 소스 고정이 없어 단일 마이크 완전 자동 감지는 미지원 (구글 번역앱도 전환 버튼 사용)
+3. **실시간 통역 출력** → 자막 중심 + 번역 음성 토글(turn 단위 재생)
+4. **비원어민 발음** → 흉내/모호 발음은 Gemini ASR이 오인할 수 있음 (모델 한계)
+5. **빌드 내장 API 키** → APK나 웹 산출물을 공유하면 키도 함께 노출될 수 있음
 
 ---
 

@@ -195,6 +195,9 @@ class SettingsSheet extends StatefulWidget {
   final Future<void> Function(String key) onPromptReset;
   final VoidCallback? onShowLogs;
   final VoidCallback onResetApiKey;
+  final bool googleApiKeySet;
+  final ValueChanged<String> onSetGoogleApiKey;
+  final VoidCallback onClearGoogleApiKey;
 
   const SettingsSheet({
     super.key,
@@ -324,6 +327,9 @@ class SettingsSheet extends StatefulWidget {
     required this.onPromptReset,
     this.onShowLogs,
     required this.onResetApiKey,
+    this.googleApiKeySet = false,
+    required this.onSetGoogleApiKey,
+    required this.onClearGoogleApiKey,
   });
 
   @override
@@ -491,33 +497,21 @@ class _SettingsSheetState extends State<SettingsSheet> {
               ),
               const Divider(height: 8),
 
-              // === 언어 ===
+              // === 언어 === (실시간 통역도 8개 언어 자유 선택)
               _sectionTitle('언어'),
-              if (_isRealtimeTranslate) ...[
-                _readonlyTile('통역 언어', '한국어 ↔ 日本語'),
-              ] else ...[
-                _langSelector(
-                  '소스',
-                  widget.sourceLang,
-                  widget.onSourceLangChanged,
+              _langSelector('소스', widget.sourceLang, widget.onSourceLangChanged),
+              const SizedBox(height: 8),
+              _langSelector('타겟', widget.targetLang, widget.onTargetLangChanged),
+              // Swap button
+              Center(
+                child: IconButton(
+                  icon: const Icon(Icons.swap_vert, size: 20),
+                  onPressed: () {
+                    widget.onSourceLangChanged(widget.targetLang);
+                    widget.onTargetLangChanged(widget.sourceLang);
+                  },
                 ),
-                const SizedBox(height: 8),
-                _langSelector(
-                  '타겟',
-                  widget.targetLang,
-                  widget.onTargetLangChanged,
-                ),
-                // Swap button
-                Center(
-                  child: IconButton(
-                    icon: const Icon(Icons.swap_vert, size: 20),
-                    onPressed: () {
-                      widget.onSourceLangChanged(widget.targetLang);
-                      widget.onTargetLangChanged(widget.sourceLang);
-                    },
-                  ),
-                ),
-              ],
+              ),
 
               // === 화면 ===
               _sectionTitle('화면'),
@@ -576,7 +570,7 @@ class _SettingsSheetState extends State<SettingsSheet> {
                 'realtime_translate': '실시간 통역',
               }, widget.onModeChanged),
               if (_isRealtimeTranslate)
-                _readonlyTile('RT 모델', 'gpt-realtime-translate')
+                _readonlyTile('실시간 모델', 'gemini-3.5-live-translate')
               else ...[
                 _dropdownTile(
                   '번역 모델',
@@ -1018,6 +1012,27 @@ class _SettingsSheetState extends State<SettingsSheet> {
                   dense: true,
                 ),
               ListTile(
+                leading: Icon(
+                  Icons.translate,
+                  color: widget.googleApiKeySet ? Colors.green : Colors.grey,
+                ),
+                title: const Text('Gemini(Google) API 키'),
+                subtitle: Text(
+                  widget.googleApiKeySet
+                      ? '설정됨 · 실시간 통역 사용 가능 (탭하여 변경)'
+                      : '미설정 · 실시간 통역에 필요 (탭하여 입력)',
+                ),
+                trailing: widget.googleApiKeySet
+                    ? IconButton(
+                        icon: const Icon(Icons.delete_outline, size: 20),
+                        tooltip: '삭제',
+                        onPressed: widget.onClearGoogleApiKey,
+                      )
+                    : null,
+                onTap: _showGoogleApiKeyDialog,
+                dense: true,
+              ),
+              ListTile(
                 leading: const Icon(Icons.key_off, color: Colors.red),
                 title: const Text('API 키 초기화'),
                 subtitle: const Text('저장된 키를 삭제하고 입력 화면으로'),
@@ -1163,6 +1178,38 @@ class _SettingsSheetState extends State<SettingsSheet> {
         ],
       ),
     );
+  }
+
+  Future<void> _showGoogleApiKeyDialog() async {
+    final controller = TextEditingController();
+    final result = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Gemini(Google) API 키'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          obscureText: true,
+          decoration: const InputDecoration(
+            hintText: 'AIza... 또는 Gemini API 키',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('취소'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+            child: const Text('저장'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (result != null && result.isNotEmpty) {
+      widget.onSetGoogleApiKey(result);
+    }
   }
 
   Widget _readonlyTile(String label, String value) {

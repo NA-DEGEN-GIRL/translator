@@ -20,14 +20,16 @@ import '../services/realtime_postprocess_ws_service.dart';
 import '../services/responses_text_ws_service.dart';
 import '../services/speech_service.dart';
 import '../services/realtime_service.dart';
-import '../services/realtime_translation_service.dart';
+import '../services/realtime_audio_output.dart';
+import '../services/gemini_live_translate_service.dart';
 import '../services/realtime_transcription_ws_service.dart';
 import '../services/wav_audio.dart';
 import '../widgets/chat_bubble.dart';
 import '../widgets/settings_sheet.dart';
 import '../models/language.dart';
 import '../prompts.dart';
-import '../main.dart' show clearApiKey, ApiKeyScreen;
+import '../main.dart'
+    show clearApiKey, ApiKeyScreen, saveGoogleApiKey, clearGoogleApiKey;
 
 typedef _TtsAudioCacheKey = ({
   String text,
@@ -69,9 +71,21 @@ typedef _TranslationBenchmarkResult = ({
   int doneMs,
 });
 
+// 실시간 통역 세션(a/b)별 누적 버퍼. output=번역문, input=원문(자막).
+class _LtBuffer {
+  final StringBuffer output = StringBuffer();
+  final StringBuffer input = StringBuffer();
+  Timer? commitTimer;
+}
+
 class TranslatorScreen extends StatefulWidget {
   final String apiKey;
-  const TranslatorScreen({super.key, required this.apiKey});
+  final String? googleApiKey;
+  const TranslatorScreen({
+    super.key,
+    required this.apiKey,
+    this.googleApiKey,
+  });
 
   @override
   State<TranslatorScreen> createState() => _TranslatorScreenState();
@@ -80,6 +94,8 @@ class TranslatorScreen extends StatefulWidget {
 class _TranslatorScreenState extends State<TranslatorScreen>
     with WidgetsBindingObserver {
   late OpenAIService _openai;
+  // Google(Gemini) 키: 실시간 통역 전용. 설정에서 입력하면 갱신된다.
+  String? _googleApiKey;
   final LocalTranslationService _localTranslation = LocalTranslationService();
   final HeadsetMediaButtonService _headsetMediaButtons =
       HeadsetMediaButtonService();
@@ -115,6 +131,19 @@ class _TranslatorScreenState extends State<TranslatorScreen>
     echoCancel: true,
     noiseSuppress: true,
   );
+  // Gemini Live는 16kHz mono PCM16 입력을 요구한다. 실시간 통역에서 단일
+  // recorder 스트림을 두 세션에 동시 공급(fan-out)한다.
+  static const RecordConfig _geminiStreamRecordConfig = RecordConfig(
+    encoder: AudioEncoder.pcm16bits,
+    sampleRate: GeminiLiveTranslateService.inputSampleRateHz,
+    numChannels: 1,
+    autoGain: true,
+    echoCancel: true,
+    noiseSuppress: true,
+  );
+  final AudioRecorder _liveTranslateRecorder = AudioRecorder();
+  StreamSubscription<Uint8List>? _liveTranslateRecordSub;
+  bool _liveTranslateRecording = false;
   Future<bool>? _micPermissionFuture;
   Future<String>? _tempDirectoryPathFuture;
   bool _isRecording = false;
@@ -187,12 +216,10 @@ class _TranslatorScreenState extends State<TranslatorScreen>
   DateTime? _lastErrorShownAt;
   Timer? _realtimeGraceTimer;
   Timer? _pingPongWsGraceTimer;
-  Timer? _liveTranslateCommitTimer;
-  // Realtime translation usually streams deltas first; done events are used
-  // when present and this no-delta gap is the fallback commit path.
-  static const Duration _liveTranslateCommitDelay = Duration(
-    milliseconds: 1800,
-  );
+  // Gemini live-translate는 연속 스트리밍이라 발화별 turnComplete를 신뢰할 수
+  // 없다. 입력/출력 자막이 이 시간만큼 멈추면 한 세그먼트 종료로 보고 말풍선을
+  // 확정하고 다음 자막부터 새 말풍선을 만든다.
+  static const Duration _liveTranslateSegmentGap = Duration(milliseconds: 1500);
   static const Duration _systemSttFinalFlushDelay = Duration(milliseconds: 40);
   static const Duration _systemSttEmptyFlushTimeout = Duration(
     milliseconds: 1200,
@@ -200,12 +227,25 @@ class _TranslatorScreenState extends State<TranslatorScreen>
   static const Duration _androidSystemSttRestartGap = Duration(
     milliseconds: 120,
   );
+  // 마지막으로 출력 델타를 낸 세션 (라이브 자막 패널 표시용).
   String? _liveTranslateBufferSession;
-  StringBuffer _liveTranslateOutputBuffer = StringBuffer();
+  // 세션별 독립 버퍼 — 두 세션이 동시에 말풍선에 쓰므로 단일 버퍼는 섞인다.
+  final Map<String, _LtBuffer> _ltBuffers = {
+    'a': _LtBuffer(),
+    'b': _LtBuffer(),
+  };
+  // 라이브 스트리밍 말풍선: 출력이 시작되면 즉시 말풍선을 만들고 in-place 갱신,
+  // 턴 종료(done)에 확정. session → _messages 인덱스.
+  final Map<String, int> _ltLiveMsgIndex = {};
+  final Set<String> _ltEchoLogged = {};
+  // 세션별 서버 감지 입력 언어(inputTranscription.languageCode). 감지 언어가
+  // 그 세션의 타겟과 같으면 echo(번역 불필요)로 보고 억제한다.
+  final Map<String, String> _ltDetectedLang = {};
+  // 수동 턴: 활성 방향은 _activeDirectionalSession / _directionalPaused로 관리.
   DateTime? _liveTranslateLastServerEventAt;
   DateTime? _liveTranslateLastNoServerLogAt;
   DateTime? _liveTranslateLastOutputLogAt;
-  int _liveTranslateOutputEventCount = 0;
+  DateTime? _liveTranslateLastInputLogAt;
   Timer? _settingsSaveTimer;
   Future<void>? _settingsSaveFuture;
   bool _settingsDirty = false;
@@ -221,9 +261,9 @@ class _TranslatorScreenState extends State<TranslatorScreen>
 
   // Realtime
   RealtimeService? _realtime;
-  RealtimeTranslationService? _realtimeTranslate; // 실시간통역 A: source → target
-  RealtimeTranslationService? _realtimeTranslateB; // 실시간통역 B: target → source
-  RealtimeTranslationService? _drainingRealtimeTranslate;
+  GeminiLiveTranslateService? _realtimeTranslate; // 실시간통역 A: source → target
+  GeminiLiveTranslateService? _realtimeTranslateB; // 실시간통역 B: target → source
+  GeminiLiveTranslateService? _drainingRealtimeTranslate;
   String? _drainingRealtimeTranslateSession;
   RealtimePostProcessWsService? _rtPostProcessor;
   String? _rtPostProcessorKey;
@@ -391,6 +431,12 @@ class _TranslatorScreenState extends State<TranslatorScreen>
     if (_verboseLiveTranslateLogs) _logAppLine('[LT] ${message()}');
   }
 
+  // 로그용: 공백 정리 + 길이 제한.
+  String _oneLine(String text, {int max = 60}) {
+    final s = text.replaceAll(_whitespacePattern, ' ').trim();
+    return s.length <= max ? s : '${s.substring(0, max)}…';
+  }
+
   void _logTtsAudio(String Function() message) {
     if (_verboseTtsAudioLogs) _logAppLine('[TTS] ${message()}');
   }
@@ -506,6 +552,7 @@ class _TranslatorScreenState extends State<TranslatorScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _openai = OpenAIService(widget.apiKey);
+    _googleApiKey = widget.googleApiKey;
     _audioPlayerStateSub = _audioPlayer.onPlayerStateChanged.listen((state) {
       _audioPlayerMayBeActive =
           state == PlayerState.playing || state == PlayerState.paused;
@@ -529,7 +576,8 @@ class _TranslatorScreenState extends State<TranslatorScreen>
     _interimUpdateTimer?.cancel();
     _realtimeGraceTimer?.cancel();
     _pingPongWsGraceTimer?.cancel();
-    _liveTranslateCommitTimer?.cancel();
+    _cancelLiveTranslateCommitTimers();
+    unawaited(_stopLiveTranslateCapture());
     _cancelPrimarySystemSttAutoStop();
     _cancelMirrorSystemSttAutoStop();
     _flushSettings();
@@ -850,7 +898,7 @@ class _TranslatorScreenState extends State<TranslatorScreen>
       _ttsSourceEnabled = prefs.getBool('ttsSource') ?? false;
       _ttsTargetEnabled = prefs.getBool('ttsTarget') ?? false;
       _liveTranslateAudioEnabled =
-          prefs.getBool('liveTranslateAudioEnabled') ?? false;
+          prefs.getBool('liveTranslateAudioEnabled') ?? true;
       _liveTranslateAudioRoute = _normalizeLiveTranslateAudioRoute(
         prefs.getString('liveTranslateAudioRoute'),
       );
@@ -885,11 +933,6 @@ class _TranslatorScreenState extends State<TranslatorScreen>
           .toDouble();
       _inputExpanded = prefs.getBool('inputExpanded') ?? false;
       _mode = normalizedMode;
-      if (_isLiveTranslateMode) {
-        _sourceLang = 'ko';
-        _targetLang = 'ja';
-        _refreshLanguageDerivedFields();
-      }
       final savedModel = prefs.getString('model') ?? 'gpt-5.4-mini';
       _model = savedModel.startsWith('gpt-4.1') ? 'gpt-5.4-mini' : savedModel;
       final savedAiModel = prefs.getString('aiModel') ?? 'gpt-5.4-mini';
@@ -1300,12 +1343,9 @@ class _TranslatorScreenState extends State<TranslatorScreen>
               }
               setState(() {
                 _mode = v;
+                // 실시간 통역은 AI 모드와 공존하지 않는다. 언어쌍은 현재 선택 유지.
                 if (v == 'realtime_translate') {
                   _aiMode = false;
-                  _sourceLang = 'ko';
-                  _targetLang = 'ja';
-                  _micLang = 'ko';
-                  _refreshLanguageDerivedFields();
                 }
               });
               setSheetState(() {});
@@ -1671,6 +1711,19 @@ class _TranslatorScreenState extends State<TranslatorScreen>
             onResetApiKey: () {
               Navigator.pop(context);
               _resetApiKey();
+            },
+            googleApiKeySet: (_googleApiKey ?? '').isNotEmpty,
+            onSetGoogleApiKey: (key) async {
+              await saveGoogleApiKey(key);
+              if (!mounted) return;
+              setState(() => _googleApiKey = key);
+              setSheetState(() {});
+            },
+            onClearGoogleApiKey: () async {
+              await clearGoogleApiKey();
+              if (!mounted) return;
+              setState(() => _googleApiKey = null);
+              setSheetState(() {});
             },
           );
         },
@@ -3025,7 +3078,7 @@ class _TranslatorScreenState extends State<TranslatorScreen>
   void _stopPlaybackForRecording() {
     _playbackGeneration++;
     _lastTtsOutputPrimeAt = null;
-    unawaited(RealtimeTranslationService.stopBufferedAudio());
+    unawaited(RealtimeAudioOutputController.stopBufferedAudio());
     if (_audioPlayerMayBeActive) {
       _audioPlayerMayBeActive = false;
       unawaited(_audioPlayer.stop().catchError((Object _) {}));
@@ -3037,7 +3090,7 @@ class _TranslatorScreenState extends State<TranslatorScreen>
     double balance,
     int playbackGeneration,
   ) async {
-    unawaited(RealtimeTranslationService.warmUpAudioOutput());
+    unawaited(RealtimeAudioOutputController.warmUp());
     final lastPrime = _lastTtsOutputPrimeAt;
     if (lastPrime != null &&
         DateTime.now().difference(lastPrime) < const Duration(seconds: 3)) {
@@ -3285,7 +3338,7 @@ class _TranslatorScreenState extends State<TranslatorScreen>
       _audioPlayerMayBeActive = true;
       if (kIsWeb) {
         if (timing != null) _logPingPongTiming('tts_play_start', timing);
-        final played = await RealtimeTranslationService.playBufferedAudio(
+        final played = await RealtimeAudioOutputController.playBufferedAudio(
           audioBytes,
           pan: balance,
           leadInMs: leadInMs,
@@ -3410,7 +3463,7 @@ class _TranslatorScreenState extends State<TranslatorScreen>
       !kIsWeb &&
       defaultTargetPlatform == TargetPlatform.android &&
       _headsetButtonControlEnabled &&
-      _mode == 'openai' &&
+      (_mode == 'openai' || _isRealtimeTranslateMode) &&
       !_aiMode;
 
   bool get _isPrimaryCaptureActive =>
@@ -3478,6 +3531,30 @@ class _TranslatorScreenState extends State<TranslatorScreen>
         () =>
             '무시: enabled=$_headsetButtonControlEnabled mode=$_mode ai=$_aiMode',
       );
+      return;
+    }
+    // 실시간 통역(수동 턴): ping-pong과 동일 — 1탭=상대(target, session b),
+    // 2탭=나(source, session a), 3탭=일시정지. 미연결 시 1·2탭은 자동 연결+그 턴.
+    if (_isRealtimeTranslateMode) {
+      _warmUpLiveTranslateAudioIfNeeded();
+      switch (event.action) {
+        case 'play_pause': // 1탭 = 상대 언어 턴 (target → source)
+          _logHeadsetButton(() => '실시간 1탭: 상대(target) 턴');
+          _switchLiveTranslateSession('b');
+          break;
+        case 'next': // 2탭 = 내 언어 턴 (source → target)
+          _logHeadsetButton(() => '실시간 2탭: 나(source) 턴');
+          _switchLiveTranslateSession('a');
+          break;
+        case 'previous': // 3탭 = 현재 턴 일시정지
+          _logHeadsetButton(() => '실시간 3탭: 일시정지');
+          if (_realtimeActive && !_directionalPaused) {
+            _switchLiveTranslateSession(_activeDirectionalSession);
+          }
+          break;
+        default:
+          _logHeadsetButton(() => '무시: unknown=${event.action}');
+      }
       return;
     }
     switch (event.action) {
@@ -4700,7 +4777,6 @@ class _TranslatorScreenState extends State<TranslatorScreen>
       _realtimeA?.clearState();
       _realtimeB?.clearState();
     }
-    _liveTranslateCommitTimer?.cancel();
     _resetLiveTranslateBuffers();
     setState(() {
       _messages.clear();
@@ -6234,13 +6310,38 @@ class _TranslatorScreenState extends State<TranslatorScreen>
     });
   }
 
-  void _resetLiveTranslateBuffers() {
-    _liveTranslateCommitTimer?.cancel();
-    _liveTranslateCommitTimer = null;
-    _liveTranslateBufferSession = null;
-    _liveTranslateOutputBuffer = StringBuffer();
-    _liveTranslateLastOutputLogAt = null;
-    _liveTranslateOutputEventCount = 0;
+  // session 지정 시 그 세션만, 없으면 양 세션 모두 초기화.
+  void _resetLiveTranslateBuffers([String? session]) {
+    final sessions = session == null ? _ltBuffers.keys.toList() : [session];
+    for (final s in sessions) {
+      final b = _ltBuffers[s];
+      if (b == null) continue;
+      b.commitTimer?.cancel();
+      b.commitTimer = null;
+      b.output.clear();
+      b.input.clear();
+    }
+    if (session == null || session == _liveTranslateBufferSession) {
+      _liveTranslateBufferSession = null;
+    }
+    if (session == null) {
+      _liveTranslateLastOutputLogAt = null;
+      _liveTranslateLastInputLogAt = null;
+      _ltLiveMsgIndex.clear();
+      _ltEchoLogged.clear();
+      _ltDetectedLang.clear();
+    } else {
+      _ltLiveMsgIndex.remove(session);
+      _ltEchoLogged.remove(session);
+      _ltDetectedLang.remove(session);
+    }
+  }
+
+  void _cancelLiveTranslateCommitTimers() {
+    for (final b in _ltBuffers.values) {
+      b.commitTimer?.cancel();
+      b.commitTimer = null;
+    }
   }
 
   void _resetLiveTranslateWatchdog() {
@@ -6248,44 +6349,65 @@ class _TranslatorScreenState extends State<TranslatorScreen>
     _liveTranslateLastNoServerLogAt = null;
   }
 
-  String _liveTranslateOutputText() => _liveTranslateOutputBuffer
-      .toString()
-      .replaceAll(_whitespacePattern, ' ')
-      .trim();
-
-  StringBuffer _mergeLiveTranslateFinalTranscript(
-    StringBuffer buffer,
-    Object? transcript,
-  ) {
-    if (transcript == null) return buffer;
-    final incoming = transcript.toString().replaceAll(_whitespacePattern, ' ');
-    final normalizedIncoming = incoming.trim();
-    if (normalizedIncoming.isEmpty) return buffer;
-    final current = buffer
-        .toString()
+  String _liveTranslateOutputText([String? session]) {
+    final s = session ?? _liveTranslateBufferSession;
+    if (s == null) return '';
+    return (_ltBuffers[s]?.output.toString() ?? '')
         .replaceAll(_whitespacePattern, ' ')
         .trim();
-    if (current.isEmpty ||
-        normalizedIncoming == current ||
-        normalizedIncoming.contains(current) ||
-        normalizedIncoming.length > current.length) {
-      return StringBuffer(normalizedIncoming);
-    }
-    if (current.contains(normalizedIncoming) ||
-        current.endsWith(normalizedIncoming)) {
-      return buffer;
-    }
-    buffer.write(incoming);
-    return buffer;
   }
 
-  RealtimeTranslationService? _liveTranslateService(String session) {
+  String _liveTranslateInputText(String session) =>
+      (_ltBuffers[session]?.input.toString() ?? '')
+          .replaceAll(_whitespacePattern, ' ')
+          .trim();
+
+  // done 이벤트의 full transcript를 누적본과 병합한 최종 문자열을 돌려준다.
+  String _mergedFinalTranscript(String current, Object? transcript) {
+    if (transcript == null) return current;
+    final incoming = transcript.toString().replaceAll(_whitespacePattern, ' ');
+    final normalizedIncoming = incoming.trim();
+    if (normalizedIncoming.isEmpty) return current;
+    final normalizedCurrent = current
+        .replaceAll(_whitespacePattern, ' ')
+        .trim();
+    if (normalizedCurrent.isEmpty ||
+        normalizedIncoming == normalizedCurrent ||
+        normalizedIncoming.contains(normalizedCurrent) ||
+        normalizedIncoming.length > normalizedCurrent.length) {
+      return normalizedIncoming;
+    }
+    if (normalizedCurrent.contains(normalizedIncoming) ||
+        normalizedCurrent.endsWith(normalizedIncoming)) {
+      return normalizedCurrent;
+    }
+    return normalizedCurrent + incoming;
+  }
+
+  // echo 방어: echoTargetLanguage=false가 침묵 시 자막까지 막는지 미검증.
+  // 막지 못해 stray 자막이 새면, 그 출력은 입력을 그대로 따라한 echo이므로
+  // 입력≈출력이면 폐기한다(번역은 텍스트가 달라진다 — 같은 스크립트 쌍도 안전).
+  bool _isLiveTranslateEchoArtifact(String session, String output) {
+    final input = _liveTranslateInputText(session);
+    if (input.isEmpty) return false;
+    String norm(String s) =>
+        s.replaceAll(_whitespacePattern, '').toLowerCase();
+    final o = norm(output);
+    final i = norm(input);
+    if (o.isEmpty || o.length < 2) return false;
+    if (o == i) return true;
+    if (i.contains(o) && o.length >= i.length * 0.8) return true;
+    if (o.contains(i) && i.length >= o.length * 0.8) return true;
+    return false;
+  }
+
+  GeminiLiveTranslateService? _liveTranslateService(String session) {
     return session == 'a' ? _realtimeTranslate : _realtimeTranslateB;
   }
 
   void _setLiveTranslateService(
     String session,
-    RealtimeTranslationService? service,
+    GeminiLiveTranslateService? service,
   ) {
     if (session == 'a') {
       _realtimeTranslate = service;
@@ -6308,17 +6430,16 @@ class _TranslatorScreenState extends State<TranslatorScreen>
     }
   }
 
-  RealtimeTranslationService _createLiveTranslateService(String session) {
-    late final RealtimeTranslationService service;
+  GeminiLiveTranslateService _createLiveTranslateService(String session) {
+    late final GeminiLiveTranslateService service;
     final isA = session == 'a';
-    service = RealtimeTranslationService(
-      apiKey: widget.apiKey,
+    service = GeminiLiveTranslateService(
+      apiKey: _googleApiKey ?? '',
       targetLangCode: isA ? _targetLang : _sourceLang,
       playTranslatedAudio: _liveTranslateAudioEnabled,
       audioPan: _liveTranslatePanForSession(session),
       audioBoostGain: _liveTranslateAudioBoostGain,
       audioBoostDurationMs: _liveTranslateAudioBoostMs,
-      inputNoiseReduction: _liveTranslateInputNoiseReduction,
       debugLabel: isA
           ? 'A:$_sourceLang->$_targetLang'
           : 'B:$_targetLang->$_sourceLang',
@@ -6352,7 +6473,8 @@ class _TranslatorScreenState extends State<TranslatorScreen>
   }
 
   bool _shouldMuteLiveTranslateAudio(String session) {
-    return !_liveTranslateAudioEnabled || session != _activeDirectionalSession;
+    // 두 방향 모두 출력 가능(한 번에 한쪽만 말함) — 토글만으로 제어.
+    return !_liveTranslateAudioEnabled;
   }
 
   void _applyLiveTranslateAudioMute() {
@@ -6376,11 +6498,11 @@ class _TranslatorScreenState extends State<TranslatorScreen>
 
   void _warmUpLiveTranslateAudioIfNeeded() {
     if (_liveTranslateAudioEnabled) {
-      unawaited(RealtimeTranslationService.warmUpAudioOutput());
+      unawaited(RealtimeAudioOutputController.warmUp());
     }
   }
 
-  Future<RealtimeTranslationService?> _ensureLiveTranslateService(
+  Future<GeminiLiveTranslateService?> _ensureLiveTranslateService(
     String session, {
     required bool muted,
     bool fresh = false,
@@ -6469,60 +6591,92 @@ class _TranslatorScreenState extends State<TranslatorScreen>
     }
   }
 
+  // 두 세션을 동시에 청취시킨다. echoTargetLanguage=false가 방향을 자동으로
+  // 라우팅하므로(입력이 타겟 언어면 침묵) 발화 버튼 없이 양방향 통역이 된다.
   Future<void> _openLiveTranslateMic(String session) async {
     final rtA = _realtimeTranslate;
     final rtB = _realtimeTranslateB;
     final lifecycleId = _realtimeLifecycleId;
     _logLiveTranslate(
       () =>
-          'openMic.begin requested=$session lifecycle=$lifecycleId '
-          'active=$_realtimeActive paused=$_directionalPaused current=$_activeDirectionalSession '
-          'aActive=${rtA?.isActive} bActive=${rtB?.isActive}',
+          'openMic.begin lifecycle=$lifecycleId active=$_realtimeActive '
+          'paused=$_directionalPaused aActive=${rtA?.isActive} bActive=${rtB?.isActive}',
     );
     if (!mounted ||
         !_realtimeActive ||
         lifecycleId != _realtimeLifecycleId ||
-        _realtimeTranslate != rtA ||
-        _realtimeTranslateB != rtB ||
-        _activeDirectionalSession != session ||
         _directionalPaused) {
-      _logLiveTranslate(
-        () =>
-            'openMic.abort requested=$session mounted=$mounted active=$_realtimeActive '
-            'lifecycleNow=$_realtimeLifecycleId lifecycleWas=$lifecycleId '
-            'sameA=${_realtimeTranslate == rtA} sameB=${_realtimeTranslateB == rtB} '
-            'current=$_activeDirectionalSession paused=$_directionalPaused',
-      );
+      _logLiveTranslate(() => 'openMic.abort');
       return;
     }
-    _applyNativeLiveTranslateAudioPan(session);
+    // 수동 턴: 활성 방향만 마이크를 연다(나머지는 음소거 → 교차 오인 차단).
     rtA?.muteMic(session != 'a');
     rtB?.muteMic(session != 'b');
+    // 활성 방향만 오디오 출력 허용.
+    rtA?.setAudioAllowed(session == 'a');
+    rtB?.setAudioAllowed(session == 'b');
+    await _startLiveTranslateCapture();
+    _applyNativeLiveTranslateAudioPan(session);
     _applyLiveTranslateAudioMute();
     _liveTranslateLastServerEventAt = DateTime.now();
-    if (_liveTranslateOutputText().isEmpty) {
-      _setRealtimeStatus('청취 중...', '聴取中...');
+    _setRealtimeStatus('청취 중...', '聴取中...');
+    _logLiveTranslate(() => 'openMic.done active=$session');
+  }
+
+  // 단일 16kHz mono PCM16 스트림을 양 세션에 fan-out한다(비활성 세션은
+  // muteMic로 자체 폐기 → 활성 방향만 실제로 처리).
+  Future<void> _startLiveTranslateCapture() async {
+    if (_liveTranslateRecording) return;
+    try {
+      if (!await _liveTranslateRecorder.hasPermission()) {
+        _logLiveTranslate(() => 'capture.no_permission');
+        return;
+      }
+      final stream = await _liveTranslateRecorder.startStream(
+        _geminiStreamRecordConfig,
+      );
+      _liveTranslateRecording = true;
+      _liveTranslateRecordSub = stream.listen(
+        (chunk) {
+          if (chunk.isEmpty) return;
+          // 비활성 세션은 muteMic 상태라 appendPcm16에서 폐기됨.
+          _realtimeTranslate?.appendPcm16(chunk);
+          _realtimeTranslateB?.appendPcm16(chunk);
+        },
+        onError: (Object e) => _logLiveTranslate(() => 'capture.error $e'),
+      );
+      _logLiveTranslate(() => 'capture.started 16kHz fan-out');
+    } catch (e) {
+      _liveTranslateRecording = false;
+      _logLiveTranslate(() => 'capture.start_failed $e');
     }
-    _logLiveTranslate(
-      () =>
-          'openMic.done activeSession=$session '
-          'aMuted=${session != 'a'} bMuted=${session != 'b'}',
-    );
+  }
+
+  Future<void> _stopLiveTranslateCapture() async {
+    if (!_liveTranslateRecording && _liveTranslateRecordSub == null) return;
+    _liveTranslateRecording = false;
+    await _liveTranslateRecordSub?.cancel();
+    _liveTranslateRecordSub = null;
+    try {
+      if (await _liveTranslateRecorder.isRecording()) {
+        await _liveTranslateRecorder.stop();
+      }
+    } catch (_) {}
   }
 
   void _applyNativeLiveTranslateAudioPan(String? session) {
     if (!_liveTranslateAudioEnabled || session == null) {
-      unawaited(RealtimeTranslationService.setNativeOutputPan(0));
+      unawaited(RealtimeAudioOutputController.setGlobalPan(0));
       return;
     }
     unawaited(
-      RealtimeTranslationService.setNativeOutputPan(
+      RealtimeAudioOutputController.setGlobalPan(
         _liveTranslatePanForSession(session),
       ),
     );
   }
 
-  String? _liveTranslateSessionForService(RealtimeTranslationService service) {
+  String? _liveTranslateSessionForService(GeminiLiveTranslateService service) {
     if (identical(service, _realtimeTranslate)) return 'a';
     if (identical(service, _realtimeTranslateB)) return 'b';
     if (identical(service, _drainingRealtimeTranslate)) {
@@ -6568,15 +6722,10 @@ class _TranslatorScreenState extends State<TranslatorScreen>
     bool draining = false,
   }) {
     if (draining) return true;
-    return _realtimeActive && session == _activeDirectionalSession;
-  }
-
-  void _prepareLiveTranslateBuffer(String session) {
-    if (_liveTranslateBufferSession != null &&
-        _liveTranslateBufferSession != session) {
-      _resetLiveTranslateBuffers();
-    }
-    _liveTranslateBufferSession ??= session;
+    // 수동 턴: 활성 방향이고 일시정지가 아닐 때만 수용.
+    return _realtimeActive &&
+        !_directionalPaused &&
+        session == _activeDirectionalSession;
   }
 
   void _appendLiveTranslateOutput(
@@ -6585,103 +6734,216 @@ class _TranslatorScreenState extends State<TranslatorScreen>
     bool finalTranscript = false,
   }) {
     if (delta == null) return;
-    _applyNativeLiveTranslateAudioPan(session);
-    _prepareLiveTranslateBuffer(session);
+    final buf = _ltBuffers[session] ??= _LtBuffer();
+    _liveTranslateBufferSession = session;
     if (finalTranscript) {
-      _liveTranslateOutputBuffer = _mergeLiveTranslateFinalTranscript(
-        _liveTranslateOutputBuffer,
-        delta,
-      );
+      final merged = _mergedFinalTranscript(buf.output.toString(), delta);
+      buf.output
+        ..clear()
+        ..write(merged);
     } else {
-      _liveTranslateOutputBuffer.write(delta);
+      buf.output.write(delta);
     }
     _logLiveTranslateOutput(session: session, finalTranscript: finalTranscript);
-    if (mounted) {
-      setState(() {
-        _setInterimTextPair('', '');
-      });
+    _updateLiveTranslateBubble(session);
+    _scheduleLiveTranslateGap(session);
+  }
+
+  void _appendLiveTranslateInput(
+    Object? delta, {
+    required String session,
+    bool finalTranscript = false,
+  }) {
+    if (delta == null) return;
+    final buf = _ltBuffers[session] ??= _LtBuffer();
+    if (finalTranscript) {
+      // done은 해당 턴의 전체 입력 → 누적/병합하지 않고 교체(턴 간 오염 방지).
+      buf.input
+        ..clear()
+        ..write(delta.toString());
+      _logLiveTranslate(
+        () => 'input.done   session=$session "${_oneLine(_liveTranslateInputText(session))}"',
+      );
+    } else {
+      buf.input.write(delta);
+      _logLiveTranslateInputDelta(session);
     }
+    // 이미 출력이 시작돼 말풍선이 있으면 원문을 라이브로 갱신.
+    if (_ltLiveMsgIndex.containsKey(session)) {
+      _updateLiveTranslateBubble(session);
+    } else if (mounted) {
+      // 아직 말풍선 전이어도 입력 인식 실시간 표시를 갱신.
+      setState(() {});
+    }
+    _scheduleLiveTranslateGap(session);
+  }
+
+  // 자막 활동이 멈추면(gap) 세그먼트 종료로 보고 확정/리셋.
+  void _scheduleLiveTranslateGap(String session) {
+    final buf = _ltBuffers[session] ??= _LtBuffer();
+    buf.commitTimer?.cancel();
+    buf.commitTimer = Timer(
+      _liveTranslateSegmentGap,
+      () => _finalizeLiveTranslateBubble(session),
+    );
+  }
+
+  void _logLiveTranslateInputDelta(String session) {
+    final now = DateTime.now();
+    final last = _liveTranslateLastInputLogAt;
+    if (last != null &&
+        now.difference(last) < const Duration(milliseconds: 700)) {
+      return;
+    }
+    _liveTranslateLastInputLogAt = now;
+    _logLiveTranslate(
+      () => 'input.delta  session=$session "${_oneLine(_liveTranslateInputText(session))}"',
+    );
   }
 
   void _logLiveTranslateOutput({
     required String session,
     required bool finalTranscript,
   }) {
-    _liveTranslateOutputEventCount++;
     final now = DateTime.now();
     final lastLog = _liveTranslateLastOutputLogAt;
     if (!finalTranscript &&
         lastLog != null &&
-        now.difference(lastLog) < const Duration(milliseconds: 900)) {
+        now.difference(lastLog) < const Duration(milliseconds: 700)) {
       return;
     }
     _liveTranslateLastOutputLogAt = now;
     _logLiveTranslate(
       () =>
-          'output.${finalTranscript ? 'final' : 'delta'} session=$session '
-          'chars=${_liveTranslateOutputText().length} '
-          'events=$_liveTranslateOutputEventCount',
+          'output.${finalTranscript ? 'done ' : 'delta'} session=$session '
+          '"${_oneLine(_liveTranslateOutputText(session))}"',
     );
   }
 
-  void _scheduleLiveTranslateCommit({String? session}) {
-    _liveTranslateCommitTimer?.cancel();
-    final commitSession = session ?? _liveTranslateBufferSession;
-    _liveTranslateCommitTimer = Timer(
-      _liveTranslateCommitDelay,
-      () => _commitLiveTranslateSegment(session: commitSession),
-    );
+  void _captureLiveDetectedLang(String session, Object? lang) {
+    final code = lang?.toString() ?? '';
+    if (code.isEmpty) return;
+    if (_ltDetectedLang[session] != code) {
+      _ltDetectedLang[session] = code;
+      _logLiveTranslate(() => 'detect session=$session lang=$code');
+    }
   }
 
-  void _commitLiveTranslateSegment({String? session}) {
-    _liveTranslateCommitTimer?.cancel();
-    _liveTranslateCommitTimer = null;
-    final bufferSession =
-        _liveTranslateBufferSession ?? session ?? _activeDirectionalSession;
-    if (session != null &&
-        _liveTranslateBufferSession != null &&
-        _liveTranslateBufferSession != session) {
-      return;
-    }
-    final translated = _liveTranslateOutputText();
-    if (translated.isEmpty) {
-      _resetLiveTranslateBuffers();
-      return;
-    }
-
-    final isSourceToTarget = bufferSession == 'a';
+  // 출력이 시작되면 라이브 말풍선을 만들고(없으면), 있으면 in-place 갱신.
+  // 입력=원문, 출력=번역문. echo(출력≈입력)면 말풍선을 만들지 않는다.
+  void _updateLiveTranslateBubble(String session) {
     if (!mounted) return;
-    if (_isRealtimeJunkOutput(translated)) {
-      _resetLiveTranslateBuffers();
+    final out = _liveTranslateOutputText(session);
+    if (out.isEmpty || _isRealtimeJunkOutput(out)) return;
+    if (_isLiveTranslateEchoArtifact(session, out)) {
+      if (_ltEchoLogged.add(session)) {
+        _logLiveTranslate(
+          () =>
+              'echo.suppress session=$session out="${_oneLine(out)}" '
+              'in="${_oneLine(_liveTranslateInputText(session))}"',
+        );
+      }
       return;
     }
-
+    // 수동 턴: 활성 방향만 말풍선을 만든다(비활성 세션은 mic 음소거라 출력이
+    // 없지만, 전환 직후 잔여 출력 방어).
+    if (session != _activeDirectionalSession || _directionalPaused) {
+      return;
+    }
+    final isSourceToTarget = session == 'a';
     final direction = isSourceToTarget
         ? _sourceToTargetDirection
         : _targetToSourceDirection;
-    final msg = ChatMessage(
-      original: '',
-      translated: translated,
-      direction: direction,
-      turnId: 'lt-${DateTime.now().microsecondsSinceEpoch}',
-    );
-    late final int msgIndex;
-    setState(() {
-      msgIndex = _messages.length;
-      _messages.add(msg);
-      _setInterimTextPair(
-        _realtimeActive && !_directionalPaused ? '청취 중...' : '',
-        _realtimeActive && !_directionalPaused ? '聴取中...' : '',
+    final original = _liveTranslateInputText(session);
+    final idx = _ltLiveMsgIndex[session];
+    if (idx == null || idx < 0 || idx >= _messages.length) {
+      final turnId = 'lt-${DateTime.now().microsecondsSinceEpoch}-$session';
+      _logLiveTranslate(
+        () =>
+            'bubble.create session=$session $direction '
+            'in="${_oneLine(original)}" out="${_oneLine(out)}"',
       );
-    });
-    _resetLiveTranslateBuffers();
-    _scrollToBottom(settle: true);
-    _maybePostProcessLiveSegment(
-      msg: msg,
-      msgIndex: msgIndex,
-      isSourceToTarget: isSourceToTarget,
-      translated: translated,
-    );
+      setState(() {
+        _ltLiveMsgIndex[session] = _messages.length;
+        _messages.add(
+          ChatMessage(
+            original: original,
+            translated: out,
+            direction: direction,
+            turnId: turnId,
+          ),
+        );
+        _setInterimTextPair('', '');
+      });
+      _scrollToBottom(settle: true);
+    } else {
+      final cur = _messages[idx];
+      if (cur.original == original && cur.translated == out) return;
+      setState(() {
+        _messages[idx] = ChatMessage(
+          original: original,
+          translated: out,
+          backTranslation: cur.backTranslation,
+          pronunciation: cur.pronunciation,
+          direction: cur.direction,
+          turnId: cur.turnId,
+        );
+      });
+    }
+  }
+
+  // 턴 종료(output done / closed) — 라이브 말풍선을 확정하고 후처리, 버퍼 리셋.
+  void _commitLiveTranslateSegment({String? session}) {
+    final s = session ?? _liveTranslateBufferSession;
+    if (s == null) return;
+    _finalizeLiveTranslateBubble(s);
+  }
+
+  void _finalizeLiveTranslateBubble(String session) {
+    final out = _liveTranslateOutputText(session);
+    final original = _liveTranslateInputText(session);
+    final idx = _ltLiveMsgIndex[session];
+    if (mounted &&
+        idx != null &&
+        idx >= 0 &&
+        idx < _messages.length &&
+        out.isNotEmpty) {
+      _logLiveTranslate(
+        () =>
+            'finalize session=$session in="${_oneLine(original)}" '
+            'out="${_oneLine(out)}"',
+      );
+      final cur = _messages[idx];
+      if (cur.original != original || cur.translated != out) {
+        setState(() {
+          _messages[idx] = ChatMessage(
+            original: original,
+            translated: out,
+            backTranslation: cur.backTranslation,
+            pronunciation: cur.pronunciation,
+            direction: cur.direction,
+            turnId: cur.turnId,
+          );
+        });
+      }
+      _maybePostProcessLiveSegment(
+        msg: _messages[idx],
+        msgIndex: idx,
+        isSourceToTarget: session == 'a',
+        translated: out,
+        hasOriginal: original.isNotEmpty,
+      );
+    } else if (out.isEmpty && original.isNotEmpty) {
+      _logLiveTranslate(
+        () =>
+            'finalize.silent session=$session in="${_oneLine(original)}" '
+            '(echo 침묵, 말풍선 없음)',
+      );
+    }
+    _ltLiveMsgIndex.remove(session);
+    _ltEchoLogged.remove(session);
+    _ltDetectedLang.remove(session);
+    _resetLiveTranslateBuffers(session);
   }
 
   // Restore back-translation / pronunciation for live realtime interpretation
@@ -6692,6 +6954,7 @@ class _TranslatorScreenState extends State<TranslatorScreen>
     required int msgIndex,
     required bool isSourceToTarget,
     required String translated,
+    bool hasOriginal = false,
   }) {
     final wantBT = isSourceToTarget
         ? _backTranslateTarget
@@ -6710,16 +6973,18 @@ class _TranslatorScreenState extends State<TranslatorScreen>
         backTranslationLangCode: backTranslationLangCode,
         needBackTranslation: wantBT,
         requestGeneration: _conversationGeneration,
-        placeBackTranslationInOriginal: true,
+        // 입력 원문 자막이 있으면 original 슬롯을 보존하고 역번역은 별도 슬롯에.
+        placeBackTranslationInOriginal: !hasOriginal,
         forceScrollOnUpdate: true,
       ).catchError((_) {}),
     );
   }
 
   void _commitPendingLiveTranslateSegment() {
-    _commitLiveTranslateSegment(
-      session: _liveTranslateBufferSession ?? _activeDirectionalSession,
-    );
+    // 양 세션 모두 미확정 라이브 말풍선을 확정한다.
+    for (final session in _ltBuffers.keys.toList()) {
+      _finalizeLiveTranslateBubble(session);
+    }
   }
 
   // ===== Realtime =====
@@ -6727,17 +6992,13 @@ class _TranslatorScreenState extends State<TranslatorScreen>
     String initialSession = 'a',
     bool listen = false,
   }) {
+    // 연결되면 두 세션이 항상 청취하므로 이미 활성이면 추가 동작 없음.
     if (_realtimeActive) {
-      if (listen) return _switchLiveTranslateSessionAsync(initialSession);
       return Future.value();
     }
     final existing = _realtimeStartFuture;
     if (existing != null) {
-      return existing.then((_) async {
-        if (listen && _realtimeActive && _isRealtimeTranslateMode) {
-          await _switchLiveTranslateSessionAsync(initialSession);
-        }
-      });
+      return existing;
     }
 
     late final Future<void> tracked;
@@ -6760,9 +7021,16 @@ class _TranslatorScreenState extends State<TranslatorScreen>
   }) async {
     _logLiveTranslate(
       () =>
-          'start.begin initial=$initialSession listen=$listen '
-          'active=$_realtimeActive lifecycle=${_realtimeLifecycleId + 1}',
+          'start.begin listen=$listen active=$_realtimeActive '
+          'lifecycle=${_realtimeLifecycleId + 1}',
     );
+    if ((_googleApiKey ?? '').isEmpty) {
+      if (mounted) {
+        _showError('Gemini 실시간 통역에는 Google API 키가 필요합니다 (설정에서 입력).');
+        _setInterimTextPair('', '');
+      }
+      return;
+    }
     final stopFuture = _realtimeStopFuture;
     if (stopFuture != null) await stopFuture;
     if (_realtimeActive) return;
@@ -6774,23 +7042,24 @@ class _TranslatorScreenState extends State<TranslatorScreen>
       _setInterimTextPair('실시간 통역 연결 중...', 'リアルタイム通訳 接続中...');
     }
 
-    final service = _createLiveTranslateService(initialSession);
-    _realtimeTranslate = null;
-    _realtimeTranslateB = null;
-    _setLiveTranslateService(initialSession, service);
+    // 두 세션을 동시에 생성·연결 (a: source→target, b: target→source).
+    final serviceA = _createLiveTranslateService('a');
+    final serviceB = _createLiveTranslateService('b');
+    _realtimeTranslate = serviceA;
+    _realtimeTranslateB = serviceB;
 
     try {
       final startMuted = !listen;
-      _logLiveTranslate(
-        () =>
-            'start.service session=$initialSession startMuted=$startMuted '
-            'listenAfterReady=$listen',
-      );
-      await service.start(muted: startMuted);
+      _logLiveTranslate(() => 'start.services startMuted=$startMuted');
+      await Future.wait([
+        serviceA.start(muted: startMuted),
+        serviceB.start(muted: startMuted),
+      ]);
       if (!mounted ||
           lifecycleId != _realtimeLifecycleId ||
-          _liveTranslateService(initialSession) != service) {
-        await service.stop();
+          _realtimeTranslate != serviceA ||
+          _realtimeTranslateB != serviceB) {
+        await Future.wait([serviceA.stop(), serviceB.stop()]);
         return;
       }
       _configureLiveTranslateAudioRoutes();
@@ -6807,20 +7076,15 @@ class _TranslatorScreenState extends State<TranslatorScreen>
         mirrorText: listen ? 'リアルタイム通訳 有効' : 'リアルタイム通訳 準備完了',
       );
       _updateRealtimeAudioMute();
-      _logLiveTranslate(
-        () =>
-            'start.ready activeSession=$_activeDirectionalSession '
-            'paused=$_directionalPaused listen=$listen',
-      );
+      _logLiveTranslate(() => 'start.ready listen=$listen');
       if (listen) {
         await _openLiveTranslateMic(initialSession);
       }
     } catch (e) {
       _logLiveTranslate(() => 'start.error $e');
-      if (_liveTranslateService(initialSession) == service) {
-        _setLiveTranslateService(initialSession, null);
-      }
-      await service.stop();
+      if (_realtimeTranslate == serviceA) _realtimeTranslate = null;
+      if (_realtimeTranslateB == serviceB) _realtimeTranslateB = null;
+      await Future.wait([serviceA.stop(), serviceB.stop()]);
       final stillCurrent = lifecycleId == _realtimeLifecycleId;
       if (mounted && stillCurrent) _showError(e.toString());
       if (mounted) {
@@ -6929,10 +7193,10 @@ class _TranslatorScreenState extends State<TranslatorScreen>
     final drainRealtimeTranslate =
         activeRealtimeTranslate != null && commitPendingRealtimeTranslate;
     if (activeRealtimeTranslate == null || !commitPendingRealtimeTranslate) {
-      _liveTranslateCommitTimer?.cancel();
-      _liveTranslateCommitTimer = null;
+      _cancelLiveTranslateCommitTimers();
       _resetLiveTranslateBuffers();
     }
+    unawaited(_stopLiveTranslateCapture());
     final realtimeA = _realtimeA;
     final realtimeB = _realtimeB;
     final services = <RealtimeService>[?realtime, ?realtimeA, ?realtimeB];
@@ -7260,20 +7524,19 @@ class _TranslatorScreenState extends State<TranslatorScreen>
   Future<void> _resumeLiveTranslateMic() async {
     if (!_realtimeActive) return;
     _cancelPendingInterimUpdate();
-    final session = _activeDirectionalSession;
     setState(() {
       _realtimeMicPaused = true;
       _directionalPaused = true;
       _setInterimTextPair('실시간 통역 연결 중...', 'リアルタイム通訳 接続中...');
     });
-    final service = await _ensureLiveTranslateService(
-      session,
-      muted: false,
-      fresh: true,
-    );
+    // 두 세션 모두 재연결한다(백그라운드 복귀).
+    final services = await Future.wait([
+      _ensureLiveTranslateService('a', muted: false, fresh: true),
+      _ensureLiveTranslateService('b', muted: false, fresh: true),
+    ]);
     if (!mounted ||
-        _activeDirectionalSession != session ||
-        service?.isActive != true) {
+        !_realtimeActive ||
+        services.any((s) => s?.isActive != true)) {
       return;
     }
     setState(() {
@@ -7281,7 +7544,7 @@ class _TranslatorScreenState extends State<TranslatorScreen>
       _directionalPaused = false;
       _setInterimTextPair('', '');
     });
-    await _openLiveTranslateMic(session);
+    await _openLiveTranslateMic(_activeDirectionalSession);
   }
 
   void _resumeDirectionalMic() {
@@ -7420,12 +7683,17 @@ class _TranslatorScreenState extends State<TranslatorScreen>
   }
 
   void _handleRealtimeTranslateEvent(
-    RealtimeTranslationService service,
+    GeminiLiveTranslateService service,
     String type,
     Map<String, dynamic> event,
   ) {
     final isDraining = identical(service, _drainingRealtimeTranslate);
     final session = _liveTranslateSessionForService(service);
+    // 서비스 디버그 로그(오디오 수신/재생 등)는 게이팅 없이 항상 기록.
+    if (type == 'debug') {
+      _logLiveTranslate(() => 'svc ${event['message'] ?? ''}');
+      return;
+    }
     if (!mounted || session == null) {
       _logLiveTranslate(
         () =>
@@ -7492,19 +7760,24 @@ class _TranslatorScreenState extends State<TranslatorScreen>
         break;
 
       case 'session.input_transcript.delta':
+        _captureLiveDetectedLang(session, event['lang']);
+        _appendLiveTranslateInput(event['delta'], session: session);
         break;
 
       case 'session.input_transcript.done':
+        _captureLiveDetectedLang(session, event['lang']);
+        _appendLiveTranslateInput(
+          event['transcript'],
+          session: session,
+          finalTranscript: true,
+        );
         break;
 
       case 'session.output_transcript.delta':
-        if (_liveTranslateOutputText().isEmpty) {
+        if (_liveTranslateOutputText(session).isEmpty) {
           service.primeAudioOutput();
         }
         _appendLiveTranslateOutput(event['delta'], session: session);
-        if (!isDraining) {
-          _scheduleLiveTranslateCommit(session: session);
-        }
         break;
 
       case 'session.output_transcript.done':
@@ -8374,7 +8647,7 @@ Schema:
             Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                if (showDirectionalDock || showTranslateDock) ...[
+                if (showDirectionalDock) ...[
                   _buildRealtimePowerButton(),
                   const SizedBox(height: 8),
                 ],
@@ -8679,20 +8952,23 @@ Schema:
     ];
   }
 
+  void _toggleLiveTranslateConnection() {
+    if (_realtimeActive) {
+      _stopRealtime();
+    } else {
+      _warmUpLiveTranslateAudioIfNeeded();
+      // 수동 턴: 연결만 하고 일시정지 상태로 대기. 방향 버튼/이어폰으로 턴 시작.
+      unawaited(_startRealtimeTranslation(listen: false));
+    }
+  }
+
   Widget _buildRealtimePowerButton() {
     return _buildCircleButton(
       key: const ValueKey('rt-power-button'),
       icon: Icons.power_settings_new,
       size: 32,
       color: _realtimeActive ? Colors.red : Colors.green,
-      onTap: () {
-        if (_realtimeActive) {
-          _stopRealtime();
-        } else {
-          _warmUpLiveTranslateAudioIfNeeded();
-          _startRealtimeTranslation(listen: true);
-        }
-      },
+      onTap: _toggleLiveTranslateConnection,
       outlined: !_realtimeActive,
     );
   }
@@ -8835,7 +9111,7 @@ Schema:
     });
     _applyLiveTranslateAudioMute();
 
-    RealtimeTranslationService? next;
+    GeminiLiveTranslateService? next;
     try {
       next = await _ensureLiveTranslateService(
         session,
@@ -8873,37 +9149,165 @@ Schema:
     );
   }
 
+  // 수동 턴: 연결 버튼(별도) + 방향 턴 버튼 2개(한쪽 마이크만 열림 → 교차 오인
+  // 차단). 좌측에 연결 버튼·상태/인식, 우측에 source/target 턴 마이크.
   Widget _buildTranslateMicDock() {
     return AnimatedContainer(
       duration: const Duration(milliseconds: 180),
       padding: EdgeInsets.only(top: 4, bottom: _inputExpanded ? 6 : 0),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: [
-          _LargeDirectionalMicButton(
-            key: const ValueKey('translate-mic-source'),
-            langCode: _sourceLang,
-            color: const Color(0xFF4A90D9),
-            isActive: _isLiveTranslateSessionListening('a'),
-            isPaused:
-                _realtimeActive &&
-                _directionalPaused &&
-                _activeDirectionalSession == 'a',
-            onTap: () => _switchLiveTranslateSession('a'),
-          ),
-          _LargeDirectionalMicButton(
-            key: const ValueKey('translate-mic-target'),
-            langCode: _targetLang,
-            color: const Color(0xFFE85D75),
-            isActive: _isLiveTranslateSessionListening('b'),
-            isPaused:
-                _realtimeActive &&
-                _directionalPaused &&
-                _activeDirectionalSession == 'b',
-            onTap: () => _switchLiveTranslateSession('b'),
-          ),
+          _buildTranslateConnectButton(),
+          const SizedBox(width: 8),
+          Expanded(child: _buildLiveTranslateStatusInfo()),
+          const SizedBox(width: 6),
+          _buildTranslateTurnButton('a'),
+          const SizedBox(width: 6),
+          _buildTranslateTurnButton('b'),
         ],
       ),
+    );
+  }
+
+  // 연결/해제 전용(턴은 방향 버튼·이어폰으로). 연결 시 일시정지 상태로 두 세션을
+  // 열어두고, 방향 버튼을 눌러야 그 방향 턴이 시작된다.
+  Widget _buildTranslateConnectButton() {
+    final active = _realtimeActive;
+    return GestureDetector(
+      key: const ValueKey('lt-connect-button'),
+      onTap: _toggleLiveTranslateConnection,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: active ? const Color(0xFFE85D75) : const Color(0xFF22C55E),
+          shape: BoxShape.circle,
+        ),
+        child: Icon(
+          active ? Icons.link_off_rounded : Icons.power_settings_new_rounded,
+          color: Colors.white,
+          size: 22,
+        ),
+      ),
+    );
+  }
+
+  // 방향 턴 마이크. 누르면 그 방향 턴 시작, 같은 버튼 다시=일시정지, 다른 버튼=전환.
+  Widget _buildTranslateTurnButton(String session) {
+    final isSource = session == 'a';
+    return SizedBox(
+      width: 76,
+      height: 84,
+      child: FittedBox(
+        fit: BoxFit.contain,
+        child: _LargeDirectionalMicButton(
+          key: ValueKey('lt-turn-mic-$session'),
+          langCode: isSource ? _sourceLang : _targetLang,
+          color: isSource ? const Color(0xFF4A90D9) : const Color(0xFFE85D75),
+          isActive: _isLiveTranslateSessionListening(session),
+          isPaused:
+              _realtimeActive &&
+              _directionalPaused &&
+              _activeDirectionalSession == session,
+          onTap: () => _switchLiveTranslateSession(session),
+        ),
+      ),
+    );
+  }
+
+  // 버튼 좌측 컴팩트 상태: 언어쌍(방향) + 현재 상태(청취/번역/대기).
+  Widget _buildLiveTranslateStatusInfo() {
+    final dir =
+        '${getLangByCode(_sourceLang).name} ⇄ ${getLangByCode(_targetLang).name}';
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      mainAxisAlignment: MainAxisAlignment.center,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 8,
+              height: 8,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: _realtimeActive
+                    ? const Color(0xFF22C55E)
+                    : const Color(0xFF9CA3AF),
+              ),
+            ),
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text(
+                dir,
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF374151),
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 2),
+        if (_realtimeActive && _directionalPaused)
+          const Text(
+            '일시정지 · 방향 버튼으로 턴 시작',
+            style: TextStyle(fontSize: 11, color: Color(0xFFB45309)),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          )
+        else if (_realtimeActive)
+          _buildLiveInputRecognition()
+        else
+          const Text(
+            '대기 중 · 연결 버튼을 누르세요',
+            style: TextStyle(fontSize: 11, color: Color(0xFF9CA3AF)),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+      ],
+    );
+  }
+
+  // 각 세션이 입력을 무슨 언어로 어떻게 인식하는지 실시간 표시(라우팅 디버깅용).
+  // A = source→target, B = target→source.
+  Widget _buildLiveInputRecognition() {
+    final aIn = _liveTranslateInputText('a');
+    final bIn = _liveTranslateInputText('b');
+    final lines = <Widget>[];
+    if (aIn.isNotEmpty) {
+      lines.add(
+        _recogLine('A', _ltDetectedLang['a'] ?? '?', aIn, const Color(0xFF4A90D9)),
+      );
+    }
+    if (bIn.isNotEmpty) {
+      lines.add(
+        _recogLine('B', _ltDetectedLang['b'] ?? '?', bIn, const Color(0xFFE85D75)),
+      );
+    }
+    if (lines.isEmpty) {
+      return const Text(
+        '청취 중...',
+        style: TextStyle(fontSize: 11, color: Color(0xFF9CA3AF)),
+      );
+    }
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: lines,
+    );
+  }
+
+  Widget _recogLine(String tag, String lang, String text, Color color) {
+    return Text(
+      '$tag[$lang] ${_oneLine(text, max: 22)}',
+      style: TextStyle(fontSize: 11, color: color),
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
     );
   }
 
@@ -9430,10 +9834,9 @@ Schema:
                       useRoleLabels: _displayMode == 'face',
                     ),
                   ),
-                  // Interim text / live caption
-                  if (_isLiveTranslateMode)
-                    _buildLiveTranslateCaptionPanel()
-                  else
+                  // 실시간 통역은 말풍선이 라이브로 갱신되므로 하단 큰 캡션 패널
+                  // 대신 버튼 옆 컴팩트 상태칩만 사용한다.
+                  if (!_isLiveTranslateMode)
                     _buildInterimTextLine(_interimTextNotifier),
                   // Processing indicator
                   if (_isProcessing)

@@ -72,6 +72,19 @@ class RealtimeAudioOutputController {
     return Future.value();
   }
 
+  // 웹 전용 gapless 스트리밍. 그 외 플랫폼은 미지원(false) → 호출자가 폴백.
+  static Future<bool> enqueuePcm(
+    Uint8List pcm16, {
+    required int sampleRate,
+    double pan = 0,
+  }) {
+    return Future.value(false);
+  }
+
+  static Future<void> stopStream() {
+    return Future.value();
+  }
+
   Future<void> _disposeRenderer() async {
     final renderer = _renderer;
     _renderer = null;
