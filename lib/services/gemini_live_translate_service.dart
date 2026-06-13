@@ -23,7 +23,7 @@ import 'wav_audio.dart';
 class GeminiLiveTranslateService {
   static const String defaultModel = 'gemini-3.5-live-translate-preview';
   static const int inputSampleRateHz = 16000;
-  static const int outputSampleRateHz = 24000;
+  static const int outputSampleRateHz = 24000; // 기본값 — 실제는 mimeType에서 감지.
   static const String _endpoint =
       'wss://generativelanguage.googleapis.com/ws/'
       'google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent';
@@ -55,6 +55,11 @@ class GeminiLiveTranslateService {
   // 연속 모델은 turnComplete를 신뢰할 수 없으므로 오디오는 활동이 멈추면 flush.
   static const Duration _audioFlushGap = Duration(milliseconds: 900);
   Timer? _audioFlushTimer;
+  bool _androidStreamUnsupported = false; // 네이티브 스트리밍 미지원 시 폴백 플래그
+  Timer? _audioActivityTimer; // 출력 음성이 실제로 날 때만 active(에코 가드용)
+  bool _audioActiveState = false;
+  double _audioPanLogged = -999; // 진단: pan 변경 시 1회 로그
+  int _outputRate = outputSampleRateHz; // mimeType의 rate=로 실제값 감지(늘어짐 방지)
   // 세그먼트(발화 구간) 추적: echo 침묵 세션도 오디오를 보내므로, 이번 구간에
   // 실제 번역 출력(자막)을 낸 세션의 오디오만 재생한다. 활동이 멈추면 리셋.
   static const Duration _segmentResetGap = Duration(milliseconds: 1200);
@@ -131,9 +136,6 @@ class GeminiLiveTranslateService {
             'echoTargetLanguage': false,
           },
         },
-        // [실험] contextWindowCompression 제거 — 중립 감지기(이 설정 없음)는
-        // 언어를 정확히 맞히는데 번역 세션(이 설정 있음)은 환각해서, 이 설정이
-        // 감지를 해치는지 확인한다.
         'inputAudioTranscription': <String, dynamic>{},
         'outputAudioTranscription': <String, dynamic>{},
       },
@@ -183,6 +185,13 @@ class GeminiLiveTranslateService {
 
   void setAudioPan(double pan) {
     audioPan = pan;
+  }
+
+  // [실험] 통신모드(이어폰 마이크) 출력은 USAGE_VOICE_COMMUNICATION(mono)이라야
+  // 버즈 통화 채널로 나간다. 기본(미디어)은 false.
+  bool voiceCommOutput = false;
+  void setVoiceCommOutput(bool v) {
+    voiceCommOutput = v;
   }
 
   void setAudioBoost({required double gain, required int durationMs}) {
@@ -300,6 +309,14 @@ class GeminiLiveTranslateService {
               _asMap(partMap?['inlineData']) ?? _asMap(partMap?['inline_data']);
           final data = inline?['data'];
           if (data is String && data.isNotEmpty) {
+            // 실제 출력 rate를 mimeType(audio/pcm;rate=NNNNN)에서 감지.
+            // 하드코딩 24kHz와 다르면 재생이 늘어지거나(낮은 rate) 빨라진다.
+            final mime = (inline?['mimeType'] ?? inline?['mime_type'])?.toString();
+            final rate = _parseRateHz(mime);
+            if (rate != null && rate > 0 && rate != _outputRate) {
+              _emitDebug('audio.rate detected=$rate (was $_outputRate) mime=$mime');
+              _outputRate = rate;
+            }
             try {
               incoming.add(base64Decode(data));
             } catch (_) {}
@@ -354,7 +371,7 @@ class GeminiLiveTranslateService {
     _segmentTimer = Timer(_segmentResetGap, () {
       // 진단: 이 발화 구간에 모델이 보낸 출력 오디오 총 길이.
       if (_segmentAudioBytes > 0) {
-        final ms = (_segmentAudioBytes / 2 / outputSampleRateHz * 1000).round();
+        final ms = (_segmentAudioBytes / 2 / _outputRate * 1000).round();
         _emitDebug('audio.segment total=${ms}ms (${_segmentAudioBytes}B)');
         _segmentAudioBytes = 0;
       }
@@ -392,20 +409,49 @@ class GeminiLiveTranslateService {
     if (firstOfSegment) {
       _emitDebug('audio.begin PLAY (${kIsWeb ? 'web' : 'android'})');
     }
+    _signalAudioActivity(chunks); // 스피커 에코 가드: 실제 소리날 때만 마이크 차단
+
+
     if (kIsWeb) {
       for (final c in chunks) {
         unawaited(
           RealtimeAudioOutputController.enqueuePcm(
             c,
-            sampleRate: outputSampleRateHz,
+            sampleRate: _outputRate,
             pan: audioPan,
+            voiceComm: voiceCommOutput,
           ),
         );
       }
     } else {
-      _audioTurn.addAll(chunks);
-      _scheduleAudioFlush();
+      // Android: 네이티브 AudioTrack gapless 스트리밍(웹처럼 즉각 재생).
+      // 미지원 시 버퍼 후 audioplayers 폴백으로 1회 전환.
+      unawaited(_streamOrBufferAndroid(chunks));
     }
+  }
+
+  Future<void> _streamOrBufferAndroid(List<Uint8List> chunks) async {
+    if (!_androidStreamUnsupported) {
+      if (_audioPanLogged != audioPan) {
+        _audioPanLogged = audioPan;
+        _emitDebug('stream pan=$audioPan rate=$_outputRate');
+      }
+      var ok = true;
+      for (final c in chunks) {
+        ok = await RealtimeAudioOutputController.enqueuePcm(
+          c,
+          sampleRate: _outputRate,
+          pan: audioPan,
+          voiceComm: voiceCommOutput,
+        );
+        if (!ok) break;
+      }
+      if (ok) return;
+      _androidStreamUnsupported = true;
+      _emitDebug('audio.stream unsupported -> buffer fallback');
+    }
+    _audioTurn.addAll(chunks);
+    _scheduleAudioFlush();
   }
 
   // (Android 전용) turnComplete가 안 와도 오디오가 멈추면 누적분을 재생.
@@ -429,6 +475,42 @@ class GeminiLiveTranslateService {
     }
   }
 
+  // 출력 오디오 청크가 실제 소리(무음 아님)면 'audioActive' 이벤트를 쏜다.
+  // 화면이 스피커 출력일 때 이 동안 마이크 입력을 막아 에코를 방지한다.
+  // 무음/약음 구간엔 active를 켜지 않아 사용자가 바로 말할 수 있다.
+  void _signalAudioActivity(List<Uint8List> chunks) {
+    var sum = 0.0;
+    var n = 0;
+    for (final c in chunks) {
+      final bd = ByteData.sublistView(c);
+      final len = c.lengthInBytes & ~1;
+      for (var i = 0; i < len; i += 2) {
+        final s = bd.getInt16(i, Endian.little).toDouble();
+        sum += s * s;
+        n++;
+      }
+    }
+    if (n == 0) return;
+    if (sum / n < 430000) return; // ~ RMS 0.02 미만 = 무음/약음 → 무시
+    if (!_audioActiveState) {
+      _audioActiveState = true;
+      onEvent('audioActive', {'type': 'audioActive', 'active': true});
+    }
+    _audioActivityTimer?.cancel();
+    _audioActivityTimer = Timer(const Duration(milliseconds: 500), () {
+      _audioActiveState = false;
+      onEvent('audioActive', {'type': 'audioActive', 'active': false});
+    });
+  }
+
+  // "audio/pcm;rate=24000" 같은 mimeType에서 rate 정수만 뽑는다.
+  int? _parseRateHz(String? mime) {
+    if (mime == null || mime.isEmpty) return null;
+    final m = RegExp(r'rate=(\d+)').firstMatch(mime);
+    if (m == null) return null;
+    return int.tryParse(m.group(1)!);
+  }
+
   void _emitDebug(String message) {
     onEvent('debug', {'type': 'debug', 'message': '$debugLabel $message'});
   }
@@ -437,7 +519,7 @@ class GeminiLiveTranslateService {
     try {
       var wav = pcm16ToWav(
         chunks,
-        sampleRate: outputSampleRateHz,
+        sampleRate: _outputRate,
         numChannels: 1,
       );
       if (audioPan.abs() >= 0.01) {
@@ -454,12 +536,45 @@ class GeminiLiveTranslateService {
         _emitDebug('audio.played via=webAudio');
         return;
       }
-      final player = _player ??= AudioPlayer();
+      final player = await _ensureAndroidPlayer();
       await player.play(BytesSource(wav, mimeType: 'audio/wav'));
       _emitDebug('audio.played via=audioplayers');
     } catch (e) {
       _emitDebug('audio.error $e');
     }
+  }
+
+  // 안드로이드 재생 player. 오디오 포커스를 잡지 않도록(none) 설정해야 동시에
+  // 도는 record(VOICE_COMMUNICATION, echoCancel) 마이크 캡처가 끊기지 않는다.
+  // 포커스 GAIN을 요청하면 캡처 오디오 세션이 교란돼 인식이 영구 정지함.
+  Future<AudioPlayer> _ensureAndroidPlayer() async {
+    final existing = _player;
+    if (existing != null) return existing;
+    final created = AudioPlayer();
+    try {
+      await created.setAudioContext(
+        AudioContext(
+          android: const AudioContextAndroid(
+            isSpeakerphoneOn: false,
+            stayAwake: false,
+            contentType: AndroidContentType.speech,
+            usageType: AndroidUsageType.media,
+            audioFocus: AndroidAudioFocus.none,
+          ),
+          iOS: AudioContextIOS(
+            category: AVAudioSessionCategory.playAndRecord,
+            options: const {
+              AVAudioSessionOptions.mixWithOthers,
+              AVAudioSessionOptions.defaultToSpeaker,
+            },
+          ),
+        ),
+      );
+    } catch (e) {
+      _emitDebug('audio.ctx_error $e');
+    }
+    _player = created;
+    return created;
   }
 
   void _scheduleReconnect() {
@@ -515,10 +630,17 @@ class GeminiLiveTranslateService {
     _reconnecting = false;
     _audioFlushTimer?.cancel();
     _audioFlushTimer = null;
+    _audioActivityTimer?.cancel();
+    _audioActivityTimer = null;
+    if (_audioActiveState) {
+      _audioActiveState = false;
+      onEvent('audioActive', {'type': 'audioActive', 'active': false});
+    }
     _segmentTimer?.cancel();
     _segmentTimer = null;
     _segmentHasOutput = false;
-    if (kIsWeb) unawaited(RealtimeAudioOutputController.stopStream());
+    // 웹/안드로이드 공통 — 네이티브/Web Audio 스트림 해제(미시작 시 no-op).
+    unawaited(RealtimeAudioOutputController.stopStream());
     await _teardownChannel(sendClose: true);
     try {
       await _player?.stop();

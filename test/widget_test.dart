@@ -261,6 +261,7 @@ void main() {
             onTtsTargetChanged: _ignore<bool>,
             onLiveTranslateAudioEnabledChanged: _ignore<bool>,
             onLiveTranslateAudioRouteChanged: _ignore<String>,
+            onLiveTranslateEarphoneMicExperimentChanged: _ignore<bool>,
             onLiveTranslateAudioBoostGainChanged: _ignore<double>,
             onLiveTranslateAudioBoostMsChanged: _ignore<int>,
             onLiveTranslateInputNoiseReductionChanged: _ignore<String>,

@@ -48,4 +48,27 @@ void main() {
     expect(data.getInt16(48, Endian.little), -1000);
     expect(data.getInt16(50, Endian.little), 0);
   });
+
+  test('panWavPcm16ToStereo handles streaming data size (0xFFFFFFFF)', () {
+    // OpenAI TTS 등 스트리밍 WAV는 data 크기를 0xFFFFFFFF로 둔다 → 실제 남은
+    // 바이트로 보정해 패닝돼야 한다(이전엔 break돼 원본 mono 그대로였음).
+    final pcm = Uint8List(4);
+    final pcmData = ByteData.sublistView(pcm);
+    pcmData.setInt16(0, 1000, Endian.little);
+    pcmData.setInt16(2, -1000, Endian.little);
+    final wav = pcm16ToWav([pcm], sampleRate: 24000, numChannels: 1);
+    // data 청크 크기(오프셋 40)를 0xFFFFFFFF로 덮어쓴다(스트리밍 WAV 모사).
+    ByteData.sublistView(wav).setUint32(40, 0xFFFFFFFF, Endian.little);
+
+    final panned = panWavPcm16ToStereo(wav, 1); // 오른쪽으로
+    final data = ByteData.sublistView(panned);
+
+    expect(data.getUint16(22, Endian.little), 2, reason: 'stereo로 변환돼야 함');
+    expect(data.getUint32(40, Endian.little), 8);
+    // pan=1(오른쪽): left=0, right=sample
+    expect(data.getInt16(44, Endian.little), 0);
+    expect(data.getInt16(46, Endian.little), 1000);
+    expect(data.getInt16(48, Endian.little), 0);
+    expect(data.getInt16(50, Endian.little), -1000);
+  });
 }

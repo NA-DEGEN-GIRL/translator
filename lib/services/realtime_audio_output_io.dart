@@ -72,17 +72,69 @@ class RealtimeAudioOutputController {
     return Future.value();
   }
 
-  // 웹 전용 gapless 스트리밍. 그 외 플랫폼은 미지원(false) → 호출자가 폴백.
+  // Android 네이티브 AudioTrack(MODE_STREAM) gapless 스트리밍. 첫 호출에서
+  // 스트림을 시작(lazy)하고 이후 PCM을 써넣는다. 미지원 시 false → 호출자 폴백.
+  static int _pcmStreamRate = 0;
+  static double _pcmStreamPan = 0;
+  static bool _pcmStreamVoiceComm = false;
+  static bool _pcmStreamUnavailable = false;
+
   static Future<bool> enqueuePcm(
     Uint8List pcm16, {
     required int sampleRate,
     double pan = 0,
-  }) {
-    return Future.value(false);
+    bool voiceComm = false,
+  }) async {
+    if (_pcmStreamUnavailable) return false;
+    try {
+      // rate 또는 출력 usage(voiceComm)가 바뀌면 트랙을 새 설정으로 재생성.
+      if (_pcmStreamRate != sampleRate ||
+          _pcmStreamVoiceComm != voiceComm) {
+        await _channel.invokeMethod<void>('pcmStart', {
+          'sampleRate': sampleRate,
+          'voiceComm': voiceComm,
+        });
+        _pcmStreamRate = sampleRate;
+        _pcmStreamVoiceComm = voiceComm;
+        _pcmStreamPan = pan;
+        await _channel.invokeMethod<void>('pcmSetPan', {'pan': pan});
+      } else if ((pan - _pcmStreamPan).abs() >= 0.01) {
+        _pcmStreamPan = pan;
+        await _channel.invokeMethod<void>('pcmSetPan', {'pan': pan});
+      }
+      await _channel.invokeMethod<void>('pcmWrite', {'bytes': pcm16});
+      return true;
+    } on MissingPluginException {
+      _pcmStreamUnavailable = true;
+      return false;
+    } catch (_) {
+      return false;
+    }
   }
 
-  static Future<void> stopStream() {
-    return Future.value();
+  static Future<void> stopStream() async {
+    if (_pcmStreamRate == 0) return;
+    _pcmStreamRate = 0;
+    try {
+      await _channel.invokeMethod<void>('pcmStop');
+    } catch (_) {}
+  }
+
+  // 헤드셋(유선/BT/USB) 출력 연결 여부. 스피커 출력 판정용(에코 가드).
+  static Future<bool> isHeadsetConnected() async {
+    try {
+      final r = await _channel.invokeMethod<bool>('isHeadsetConnected');
+      return r ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  // 오디오 모드 전환(0=NORMAL 스테레오 / 3=IN_COMMUNICATION 이어폰 마이크).
+  static Future<void> setAudioMode(int mode) async {
+    try {
+      await _channel.invokeMethod<void>('setAudioMode', {'mode': mode});
+    } catch (_) {}
   }
 
   Future<void> _disposeRenderer() async {

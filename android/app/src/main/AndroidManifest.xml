@@ -30,6 +30,12 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+        <!-- 화면 꺼짐/백그라운드에서도 마이크 유지 — record 플러그인 포그라운드 서비스.
+             Android가 백그라운드 앱의 마이크를 막으므로 microphone 타입 FG 서비스 필요. -->
+        <service
+            android:name="com.llfbandit.record.service.AudioRecordingService"
+            android:foregroundServiceType="microphone"
+            android:exported="false" />
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and
@@ -41,6 +47,10 @@
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- 화면 꺼짐/백그라운드 마이크 유지용 포그라운드 서비스 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <queries>
         <intent>

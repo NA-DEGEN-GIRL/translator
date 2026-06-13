@@ -69,6 +69,17 @@ Uint8List panWavPcm16ToStereo(Uint8List wavBytes, double pan) {
     final id = ascii(offset, 4);
     final size = data.getUint32(offset + 4, Endian.little);
     final bodyOffset = offset + 8;
+
+    if (id == 'data') {
+      // OpenAI 등 스트리밍 WAV는 data 크기를 0xFFFFFFFF(미지정)로 두거나 실제보다
+      // 크게 적는다. 그대로 쓰면 'bodyOffset+size>버퍼'로 break돼 패닝이 안 됐다.
+      // → 실제 남은 바이트로 보정한다(data는 보통 마지막 청크).
+      final remaining = bytes.lengthInBytes - bodyOffset;
+      dataOffset = bodyOffset;
+      dataLength = (size == 0xFFFFFFFF || size > remaining) ? remaining : size;
+      break;
+    }
+
     if (bodyOffset + size > bytes.lengthInBytes) break;
 
     if (id == 'fmt ' && size >= 16) {
@@ -76,9 +87,6 @@ Uint8List panWavPcm16ToStereo(Uint8List wavBytes, double pan) {
       inputChannels = data.getUint16(bodyOffset + 2, Endian.little);
       sampleRate = data.getUint32(bodyOffset + 4, Endian.little);
       bitsPerSample = data.getUint16(bodyOffset + 14, Endian.little);
-    } else if (id == 'data') {
-      dataOffset = bodyOffset;
-      dataLength = size;
     }
 
     offset = bodyOffset + size + (size.isOdd ? 1 : 0);

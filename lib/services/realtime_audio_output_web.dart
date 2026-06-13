@@ -285,6 +285,7 @@ class RealtimeAudioOutputController {
     Uint8List pcm16, {
     required int sampleRate,
     double pan = 0,
+    bool voiceComm = false, // 웹은 무시(출력 라우트 개념 없음)
   }) async {
     try {
       final context = _sharedContext ??= web.AudioContext();
@@ -341,6 +342,12 @@ class RealtimeAudioOutputController {
       return false;
     }
   }
+
+  // 웹은 출력 라우트 구분 불가 → 항상 false(half-duplex 게이팅 비활성).
+  static Future<bool> isHeadsetConnected() async => false;
+
+  // 웹은 오디오 모드 개념 없음 — no-op.
+  static Future<void> setAudioMode(int mode) async {}
 
   static Future<void> stopStream() async {
     _streamCursor = 0;

@@ -79,6 +79,7 @@ class SettingsSheet extends StatefulWidget {
   final bool ttsTargetEnabled;
   final bool liveTranslateAudioEnabled;
   final String liveTranslateAudioRoute;
+  final bool liveTranslateEarphoneMicExperiment;
   final double liveTranslateAudioBoostGain;
   final int liveTranslateAudioBoostMs;
   final String liveTranslateInputNoiseReduction;
@@ -123,6 +124,7 @@ class SettingsSheet extends StatefulWidget {
   final ValueChanged<bool> onTtsTargetChanged;
   final ValueChanged<bool> onLiveTranslateAudioEnabledChanged;
   final ValueChanged<String> onLiveTranslateAudioRouteChanged;
+  final ValueChanged<bool> onLiveTranslateEarphoneMicExperimentChanged;
   final ValueChanged<double> onLiveTranslateAudioBoostGainChanged;
   final ValueChanged<int> onLiveTranslateAudioBoostMsChanged;
   final ValueChanged<String> onLiveTranslateInputNoiseReductionChanged;
@@ -211,6 +213,7 @@ class SettingsSheet extends StatefulWidget {
     required this.ttsTargetEnabled,
     this.liveTranslateAudioEnabled = false,
     this.liveTranslateAudioRoute = 'mono',
+    this.liveTranslateEarphoneMicExperiment = false,
     this.liveTranslateAudioBoostGain = 1.65,
     this.liveTranslateAudioBoostMs = 1100,
     this.liveTranslateInputNoiseReduction = 'near_field',
@@ -255,6 +258,7 @@ class SettingsSheet extends StatefulWidget {
     required this.onTtsTargetChanged,
     required this.onLiveTranslateAudioEnabledChanged,
     required this.onLiveTranslateAudioRouteChanged,
+    required this.onLiveTranslateEarphoneMicExperimentChanged,
     required this.onLiveTranslateAudioBoostGainChanged,
     required this.onLiveTranslateAudioBoostMsChanged,
     required this.onLiveTranslateInputNoiseReductionChanged,
@@ -765,7 +769,17 @@ class _SettingsSheetState extends State<SettingsSheet> {
                   widget.liveTranslateAudioEnabled,
                   widget.onLiveTranslateAudioEnabledChanged,
                 ),
-                if (widget.liveTranslateAudioEnabled)
+                _switchTile(
+                  '이어폰 마이크 (실험)',
+                  widget.liveTranslateEarphoneMicExperiment,
+                  widget.onLiveTranslateEarphoneMicExperimentChanged,
+                ),
+                // 실험 ON = 통신모드(mono)라 L/R 불가 → 라우트 고정 안내.
+                if (widget.liveTranslateAudioEnabled &&
+                    widget.liveTranslateEarphoneMicExperiment)
+                  _readonlyTile('이어폰 공유', '양쪽 같은 음성 (실험: mono 고정)'),
+                if (widget.liveTranslateAudioEnabled &&
+                    !widget.liveTranslateEarphoneMicExperiment)
                   _dropdownTile(
                     '이어폰 공유',
                     widget.liveTranslateAudioRoute,
@@ -775,36 +789,6 @@ class _SettingsSheetState extends State<SettingsSheet> {
                       'mine_right': '오른쪽=내 귀 / 왼쪽=상대',
                     },
                     widget.onLiveTranslateAudioRouteChanged,
-                  ),
-                if (widget.liveTranslateAudioEnabled)
-                  _dropdownTile(
-                    '초반 보정',
-                    widget.liveTranslateAudioBoostGain.toStringAsFixed(2),
-                    const {
-                      '1.00': 'OFF',
-                      '1.25': '약하게',
-                      '1.65': '기본',
-                      '2.00': '강하게',
-                      '2.35': '매우 강하게',
-                    },
-                    (v) => widget.onLiveTranslateAudioBoostGainChanged(
-                      double.parse(v),
-                    ),
-                  ),
-                if (widget.liveTranslateAudioEnabled)
-                  _dropdownTile(
-                    '보정 시간',
-                    widget.liveTranslateAudioBoostMs.toString(),
-                    const {
-                      '0': 'OFF',
-                      '500': '0.5s',
-                      '800': '0.8s',
-                      '1100': '1.1s',
-                      '1500': '1.5s',
-                      '2000': '2.0s',
-                    },
-                    (v) =>
-                        widget.onLiveTranslateAudioBoostMsChanged(int.parse(v)),
                   ),
               ] else ...[
                 _dropdownTile(

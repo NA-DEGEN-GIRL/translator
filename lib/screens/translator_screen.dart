@@ -133,13 +133,31 @@ class _TranslatorScreenState extends State<TranslatorScreen>
   );
   // Gemini Live는 16kHz mono PCM16 입력을 요구한다. 실시간 통역에서 단일
   // recorder 스트림을 두 세션에 동시 공급(fan-out)한다.
-  static const RecordConfig _geminiStreamRecordConfig = RecordConfig(
+  // 기본: 폰 마이크 + 미디어(A2DP) 출력(ping-pong과 동일, 안정적·L/R 가능).
+  // 실험 ON: 이어폰 마이크(통신모드, voiceCommunication) — 항상 통신모드 유지라
+  // 세션 중 전환이 없어 안정적. 출력은 mono 통화음질. 통화용 가공은 끔(음질 보존).
+  // manageBluetooth=false → BT A2DP 스테레오 출력 유지, 마이크는 폰.
+  static const AndroidService _liveTranslateFgService = AndroidService(
+    title: '실시간 통역',
+    content: '백그라운드에서 통역 중입니다',
+  );
+  RecordConfig get _geminiStreamRecordConfig => RecordConfig(
     encoder: AudioEncoder.pcm16bits,
     sampleRate: GeminiLiveTranslateService.inputSampleRateHz,
     numChannels: 1,
-    autoGain: true,
-    echoCancel: true,
-    noiseSuppress: true,
+    autoGain: false,
+    echoCancel: false,
+    noiseSuppress: false,
+    androidConfig: AndroidRecordConfig(
+      manageBluetooth: _liveTranslateUseEarphoneMic,
+      audioManagerMode: _liveTranslateUseEarphoneMic
+          ? AudioManagerMode.modeInCommunication
+          : AudioManagerMode.modeNormal,
+      audioSource: _liveTranslateUseEarphoneMic
+          ? AndroidAudioSource.voiceCommunication
+          : AndroidAudioSource.defaultSource,
+      service: _liveTranslateFgService,
+    ),
   );
   final AudioRecorder _liveTranslateRecorder = AudioRecorder();
   StreamSubscription<Uint8List>? _liveTranslateRecordSub;
@@ -242,6 +260,10 @@ class _TranslatorScreenState extends State<TranslatorScreen>
   // 그 세션의 타겟과 같으면 echo(번역 불필요)로 보고 억제한다.
   final Map<String, String> _ltDetectedLang = {};
   // 수동 턴: 활성 방향은 _activeDirectionalSession / _directionalPaused로 관리.
+  // 스피커 출력(헤드셋 미연결)일 때 번역 음성이 나오는 동안 마이크 입력을 막아
+  // 에코를 방지(half-duplex). 헤드셋이면 불필요해서 게이팅하지 않는다.
+  bool _liveTranslateOnSpeaker = true;
+  bool _liveTranslateOutputActive = false;
   DateTime? _liveTranslateLastServerEventAt;
   DateTime? _liveTranslateLastNoServerLogAt;
   DateTime? _liveTranslateLastOutputLogAt;
@@ -257,6 +279,8 @@ class _TranslatorScreenState extends State<TranslatorScreen>
   Future<SharedPreferences>? _prefsFuture;
   final Set<String> _retryablePingPongTurnIds = {};
   bool _appInBackground = false;
+  // 실시간 통역에서 화면 꺼짐/백그라운드에도 마이크 유지 중인지(FG 서비스).
+  bool _realtimeKeptListeningInBackground = false;
   bool _disposed = false;
 
   // Realtime
@@ -326,6 +350,12 @@ class _TranslatorScreenState extends State<TranslatorScreen>
   bool _ttsTargetEnabled = false;
   bool _liveTranslateAudioEnabled = false;
   String _liveTranslateAudioRoute = 'mono';
+  // [실험] 실시간 통역에서 이어폰 마이크 사용(통신모드). 기본 OFF=폰 마이크+미디어.
+  // ON이면 항상 통신모드(세션 중 전환 없음)로 두어 안정화 — 출력은 mono 통화음질,
+  // L/R 불가. BT 한계상 "이어폰 마이크"와 "L/R 음악음질"은 동시 불가.
+  bool _liveTranslateEarphoneMicExperiment = false;
+  bool get _liveTranslateUseEarphoneMic =>
+      !kIsWeb && _liveTranslateEarphoneMicExperiment;
   double _liveTranslateAudioBoostGain = 1.65;
   int _liveTranslateAudioBoostMs = 1100;
   String _liveTranslateInputNoiseReduction = 'near_field';
@@ -647,6 +677,23 @@ class _TranslatorScreenState extends State<TranslatorScreen>
       return;
     }
     _appInBackground = true;
+    // 실시간 통역에서 턴이 활성이고 grace>0이면 화면 꺼짐/백그라운드에도 마이크를
+    // 유지(포그라운드 서비스가 받쳐줌). grace 시간 후 자동 종료(배터리/비용 안전장치).
+    if (_isRealtimeTranslateMode &&
+        !_directionalPaused &&
+        _realtimeBackgroundGraceSeconds > 0) {
+      _realtimeKeptListeningInBackground = true;
+      _logLiveTranslate(() => 'background keepListening reason=$reason');
+      _realtimeGraceTimer?.cancel();
+      _realtimeGraceTimer = Timer(
+        Duration(seconds: _realtimeBackgroundGraceSeconds),
+        () {
+          if (!_appInBackground || !_realtimeActive) return;
+          _stopRealtime();
+        },
+      );
+      return;
+    }
     _realtimePausedByBackground = true;
     _realtimeWasPausedBeforeBackground = _realtimeMicPaused;
     _directionalWasPausedBeforeBackground = _directionalPaused;
@@ -674,7 +721,15 @@ class _TranslatorScreenState extends State<TranslatorScreen>
     _appInBackground = false;
     _realtimeGraceTimer?.cancel();
     _realtimeGraceTimer = null;
-    if (!_realtimeActive) return;
+    if (!_realtimeActive) {
+      _realtimeKeptListeningInBackground = false;
+      return;
+    }
+    // 백그라운드에서 계속 듣던 중이었으면 그대로 유지(일시정지/재개 안 함).
+    if (_realtimeKeptListeningInBackground) {
+      _realtimeKeptListeningInBackground = false;
+      return;
+    }
     if (_realtimeBackgroundGraceSeconds > 0 && backgroundedAt != null) {
       final elapsed = DateTime.now().difference(backgroundedAt);
       final grace = Duration(seconds: _realtimeBackgroundGraceSeconds);
@@ -902,6 +957,8 @@ class _TranslatorScreenState extends State<TranslatorScreen>
       _liveTranslateAudioRoute = _normalizeLiveTranslateAudioRoute(
         prefs.getString('liveTranslateAudioRoute'),
       );
+      _liveTranslateEarphoneMicExperiment =
+          prefs.getBool('liveTranslateEarphoneMicExperiment') ?? false;
       _liveTranslateAudioBoostGain = _normalizeLiveTranslateAudioBoostGain(
         prefs.getDouble('liveTranslateAudioBoostGain'),
       );
@@ -1093,6 +1150,7 @@ class _TranslatorScreenState extends State<TranslatorScreen>
       'ttsTarget': _ttsTargetEnabled,
       'liveTranslateAudioEnabled': _liveTranslateAudioEnabled,
       'liveTranslateAudioRoute': _liveTranslateAudioRoute,
+      'liveTranslateEarphoneMicExperiment': _liveTranslateEarphoneMicExperiment,
       'liveTranslateAudioBoostGain': _liveTranslateAudioBoostGain,
       'liveTranslateAudioBoostMs': _liveTranslateAudioBoostMs,
       'liveTranslateInputNoiseReduction': _liveTranslateInputNoiseReduction,
@@ -1289,6 +1347,8 @@ class _TranslatorScreenState extends State<TranslatorScreen>
             ttsTargetEnabled: _ttsTargetEnabled,
             liveTranslateAudioEnabled: _liveTranslateAudioEnabled,
             liveTranslateAudioRoute: _liveTranslateAudioRoute,
+            liveTranslateEarphoneMicExperiment:
+                _liveTranslateEarphoneMicExperiment,
             liveTranslateAudioBoostGain: _liveTranslateAudioBoostGain,
             liveTranslateAudioBoostMs: _liveTranslateAudioBoostMs,
             liveTranslateInputNoiseReduction: _liveTranslateInputNoiseReduction,
@@ -1430,6 +1490,19 @@ class _TranslatorScreenState extends State<TranslatorScreen>
               setSheetState(() {});
               _saveSettings();
               _updateRealtimeAudioMute();
+              // mono/L/R 모두 미디어 출력, 차이는 pan뿐 → 재연결 없이 즉시 pan만 갱신.
+              if (_realtimeActive) _configureLiveTranslateAudioRoutes();
+            },
+            onLiveTranslateEarphoneMicExperimentChanged: (v) {
+              _liveTranslateEarphoneMicExperiment = v;
+              // 실험 ON은 통신모드라 mono만 가능 → 라우트를 자동으로 mono로.
+              if (v) _liveTranslateAudioRoute = 'mono';
+              setSheetState(() {});
+              _saveSettings();
+              // 통신↔미디어 모드가 바뀌므로 활성 중이면 풀 재연결로 깨끗이 전환.
+              if (_realtimeActive) {
+                unawaited(_reconnectLiveTranslateForModeChange());
+              }
             },
             onLiveTranslateAudioBoostGainChanged: (v) {
               _liveTranslateAudioBoostGain =
@@ -5077,6 +5150,7 @@ class _TranslatorScreenState extends State<TranslatorScreen>
           },
         );
         _activeRecorderOwner = owner;
+        _logPingPongMicInfo(owner, _openAIStreamRecordConfig);
       } catch (_) {
         _streamRecorderOwner = null;
         _recordStreamChunks = null;
@@ -5093,6 +5167,31 @@ class _TranslatorScreenState extends State<TranslatorScreen>
 
     await _recorder.start(_openAIRecordConfig, path: path ?? '');
     _activeRecorderOwner = owner;
+    _logPingPongMicInfo(owner, _openAIRecordConfig);
+  }
+
+  // ping-pong 녹음 시 어떤 마이크로 잡는지 로그(실시간 통역의 route 로그와 대응).
+  // echoCancel=true → Android는 VOICE_COMMUNICATION 소스. manageBluetooth=true(기본)
+  // + 헤드셋 연결 → BT 마이크(SCO/LE). 실제 소스는 logcat의 audio-record-* usecase로도 확인.
+  void _logPingPongMicInfo(String owner, RecordConfig config) {
+    final src = config.echoCancel ? 'VOICE_COMMUNICATION' : 'MIC/DEFAULT';
+    final mb = config.androidConfig.manageBluetooth;
+    if (kIsWeb) {
+      _logAppLine(
+        '[PP-MIC] start owner=$owner web getUserMedia '
+        'echoCancel=${config.echoCancel} noiseSuppress=${config.noiseSuppress} '
+        'autoGain=${config.autoGain}',
+      );
+      return;
+    }
+    unawaited(
+      RealtimeAudioOutputController.isHeadsetConnected().then((headset) {
+        _logAppLine(
+          '[PP-MIC] start owner=$owner headset=$headset source=$src '
+          'manageBluetooth=$mb → ${headset && mb ? "BT(SCO/LE) mic" : "phone mic"}',
+        );
+      }).catchError((_) {}),
+    );
   }
 
   Future<_StoppedRecording?> _stopRecorderIfOwner(String owner) async {
@@ -6468,8 +6567,15 @@ class _TranslatorScreenState extends State<TranslatorScreen>
   }
 
   void _configureLiveTranslateAudioRoutes() {
-    _realtimeTranslate?.setAudioPan(_liveTranslatePanForSession('a'));
-    _realtimeTranslateB?.setAudioPan(_liveTranslatePanForSession('b'));
+    // 실험(이어폰 마이크)=통신모드 mono 출력(pan 0, L/R 불가 — conversational은 mono).
+    // 기본=미디어 L/R(pan ±1).
+    final voiceComm = _liveTranslateUseEarphoneMic;
+    final panA = voiceComm ? 0.0 : _liveTranslatePanForSession('a');
+    final panB = voiceComm ? 0.0 : _liveTranslatePanForSession('b');
+    _realtimeTranslate?.setAudioPan(panA);
+    _realtimeTranslateB?.setAudioPan(panB);
+    _realtimeTranslate?.setVoiceCommOutput(voiceComm);
+    _realtimeTranslateB?.setVoiceCommOutput(voiceComm);
   }
 
   bool _shouldMuteLiveTranslateAudio(String session) {
@@ -6609,13 +6715,23 @@ class _TranslatorScreenState extends State<TranslatorScreen>
       _logLiveTranslate(() => 'openMic.abort');
       return;
     }
+    _liveTranslateOutputActive = false; // 새 턴 — 이전 재생 게이트 잔류 방지
     // 수동 턴: 활성 방향만 마이크를 연다(나머지는 음소거 → 교차 오인 차단).
     rtA?.muteMic(session != 'a');
     rtB?.muteMic(session != 'b');
     // 활성 방향만 오디오 출력 허용.
     rtA?.setAudioAllowed(session == 'a');
     rtB?.setAudioAllowed(session == 'b');
+    unawaited(_refreshLiveTranslateOutputRoute());
     await _startLiveTranslateCapture();
+    // 실험(이어폰 마이크)=통신모드(3, 통신디바이스=BLE 버즈), 기본=일반(0, 미디어).
+    if (!kIsWeb) {
+      unawaited(
+        RealtimeAudioOutputController.setAudioMode(
+          _liveTranslateUseEarphoneMic ? 3 : 0,
+        ),
+      );
+    }
     _applyNativeLiveTranslateAudioPan(session);
     _applyLiveTranslateAudioMute();
     _liveTranslateLastServerEventAt = DateTime.now();
@@ -6623,10 +6739,51 @@ class _TranslatorScreenState extends State<TranslatorScreen>
     _logLiveTranslate(() => 'openMic.done active=$session');
   }
 
+  // 이어폰 마이크 실험 토글 전환 시 마이크 소스 + BT 오디오 모드(통신↔미디어)가
+  // 모두 바뀐다. 풀 재연결로 BT 상태를 깨끗이 리셋(세션 중 전환은 이때만 발생).
+  Future<void> _reconnectLiveTranslateForModeChange() async {
+    if (!_realtimeActive) return;
+    final wasListening = !_directionalPaused;
+    final session = _activeDirectionalSession;
+    _logLiveTranslate(
+      () => 'mode.change reconnect earphone=$_liveTranslateUseEarphoneMic '
+          'listen=$wasListening',
+    );
+    await _stopRealtime();
+    await Future<void>.delayed(const Duration(milliseconds: 500));
+    if (!mounted) return;
+    await _startRealtimeTranslation(initialSession: session, listen: wasListening);
+  }
+
+  // 출력 라우트(헤드셋 vs 스피커) 갱신. 헤드셋 연결 시 half-duplex 불필요.
+  Future<void> _refreshLiveTranslateOutputRoute() async {
+    if (kIsWeb) {
+      _liveTranslateOnSpeaker = false; // 웹은 구분 불가 → 게이팅 안 함
+      return;
+    }
+    final headset = await RealtimeAudioOutputController.isHeadsetConnected();
+    _liveTranslateOnSpeaker = !headset;
+    _logLiveTranslate(
+      () => 'route headset=$headset onSpeaker=$_liveTranslateOnSpeaker',
+    );
+  }
+
   // 단일 16kHz mono PCM16 스트림을 양 세션에 fan-out한다(비활성 세션은
   // muteMic로 자체 폐기 → 활성 방향만 실제로 처리).
   Future<void> _startLiveTranslateCapture() async {
-    if (_liveTranslateRecording) return;
+    if (_liveTranslateRecording) {
+      // 플래그는 켜져 있어도 실제 스트림이 죽었으면(오디오 포커스 분실/외부
+      // 재생 간섭 등) 재시작해 영구 정지를 방지한다.
+      bool stillRecording = true;
+      try {
+        stillRecording = await _liveTranslateRecorder.isRecording();
+      } catch (_) {
+        stillRecording = false;
+      }
+      if (stillRecording) return;
+      _logLiveTranslate(() => 'capture.restart (stream died)');
+      await _stopLiveTranslateCapture();
+    }
     try {
       if (!await _liveTranslateRecorder.hasPermission()) {
         _logLiveTranslate(() => 'capture.no_permission');
@@ -6639,6 +6796,13 @@ class _TranslatorScreenState extends State<TranslatorScreen>
       _liveTranslateRecordSub = stream.listen(
         (chunk) {
           if (chunk.isEmpty) return;
+          // 스피커 출력 중엔 번역 음성이 나오는 동안 마이크를 막아 에코 방지
+          // (헤드셋이면 _liveTranslateOnSpeaker=false라 그대로 통과).
+          if (!kIsWeb &&
+              _liveTranslateOnSpeaker &&
+              _liveTranslateOutputActive) {
+            return;
+          }
           // 비활성 세션은 muteMic 상태라 appendPcm16에서 폐기됨.
           _realtimeTranslate?.appendPcm16(chunk);
           _realtimeTranslateB?.appendPcm16(chunk);
@@ -6646,6 +6810,19 @@ class _TranslatorScreenState extends State<TranslatorScreen>
         onError: (Object e) => _logLiveTranslate(() => 'capture.error $e'),
       );
       _logLiveTranslate(() => 'capture.started 16kHz fan-out');
+      // 어떤 마이크로 잡는지 명시 로그. 기본=폰 마이크, 실험 ON=이어폰 마이크(통신모드).
+      if (!kIsWeb) {
+        final earphone = _liveTranslateUseEarphoneMic;
+        unawaited(
+          RealtimeAudioOutputController.isHeadsetConnected().then((headset) {
+            _logLiveTranslate(
+              () => earphone
+                  ? '[LT-MIC] earphone mic (실험: voiceCommunication/comm) headset=$headset'
+                  : '[LT-MIC] phone mic (manageBluetooth=false, no SCO) headset=$headset',
+            );
+          }).catchError((_) {}),
+        );
+      }
     } catch (e) {
       _liveTranslateRecording = false;
       _logLiveTranslate(() => 'capture.start_failed $e');
@@ -6662,6 +6839,10 @@ class _TranslatorScreenState extends State<TranslatorScreen>
         await _liveTranslateRecorder.stop();
       }
     } catch (_) {}
+    // 통신모드(실험) 잔류 방지 — 정지 시 일반 모드로 복귀.
+    if (!kIsWeb) {
+      unawaited(RealtimeAudioOutputController.setAudioMode(0));
+    }
   }
 
   void _applyNativeLiveTranslateAudioPan(String? session) {
@@ -6879,6 +7060,8 @@ class _TranslatorScreenState extends State<TranslatorScreen>
     } else {
       final cur = _messages[idx];
       if (cur.original == original && cur.translated == out) return;
+      // in-place로 말풍선이 길어질 때도 하단을 따라가도록(2번째 줄이 가려지는 문제).
+      final keepAtBottom = _shouldKeepChatAtBottom();
       setState(() {
         _messages[idx] = ChatMessage(
           original: original,
@@ -6889,6 +7072,7 @@ class _TranslatorScreenState extends State<TranslatorScreen>
           turnId: cur.turnId,
         );
       });
+      if (keepAtBottom) _scrollToBottom();
     }
   }
 
@@ -7183,6 +7367,7 @@ class _TranslatorScreenState extends State<TranslatorScreen>
     _realtimePausedByBackground = false;
     _realtimeWasPausedBeforeBackground = false;
     _directionalWasPausedBeforeBackground = false;
+    _realtimeKeptListeningInBackground = false;
     _realtimeBackgroundedAt = null;
     final realtime = _realtime;
     final realtimeTranslate = _realtimeTranslate;
@@ -7692,6 +7877,11 @@ class _TranslatorScreenState extends State<TranslatorScreen>
     // 서비스 디버그 로그(오디오 수신/재생 등)는 게이팅 없이 항상 기록.
     if (type == 'debug') {
       _logLiveTranslate(() => 'svc ${event['message'] ?? ''}');
+      return;
+    }
+    // 출력 음성 활동(에코 가드) — 게이팅 없이 즉시 반영. setState 불필요(캡처에서만 읽음).
+    if (type == 'audioActive') {
+      _liveTranslateOutputActive = event['active'] == true;
       return;
     }
     if (!mounted || session == null) {
